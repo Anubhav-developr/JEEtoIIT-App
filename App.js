@@ -23,14 +23,9 @@ import {
 } from '@react-native-firebase/auth';
 import { getFunctions, httpsCallable } from '@react-native-firebase/functions';
 import {
-  addDoc,
-  collection,
   doc,
   getFirestore,
-  limit,
   onSnapshot,
-  orderBy,
-  query,
   serverTimestamp,
   setDoc,
 } from '@react-native-firebase/firestore';
@@ -43,6 +38,8 @@ const firebaseApp = getApp();
 const auth = getAuth(firebaseApp);
 const functions = getFunctions(firebaseApp, 'us-central1');
 const db = getFirestore(firebaseApp);
+// Must match VITE_APP_ID in the web portal and its Firestore rules.
+const FIRESTORE_APP_ID = 'saumya-jee-2027';
 
 const NAV_ITEMS = [
   { key: 'home', label: 'Home', icon: '⌂' },
@@ -177,46 +174,44 @@ export default function App() {
     let readyStreams = 0;
     setDataLoading(true);
     setDataError('');
-
     const markReady = () => {
       readyStreams += 1;
-      if (readyStreams === 3 && mounted) setDataLoading(false);
+      if (readyStreams >= 3 && mounted) setDataLoading(false);
     };
     const handleSyncError = (syncError) => {
       console.warn('[Firestore] dashboard sync failed', syncError);
       if (mounted) {
-        setDataError('Dashboard data abhi sync nahi ho pa raha. Internet aur access check karein.');
+        setDataError(`Dashboard sync failed (${syncError?.code || 'unknown'}). Web portal ke matching data path par access verify karein.`);
         setDataLoading(false);
       }
     };
 
-    // Every read remains inside the authenticated user's own document tree.
-    const sessionsRef = query(
-      collection(db, 'users', user.uid, 'studySessions'),
-      orderBy('endedAtMillis', 'desc'),
-      limit(100),
-    );
-    const syllabusRef = collection(db, 'users', user.uid, 'syllabus');
-    const testsRef = query(
-      collection(db, 'users', user.uid, 'tests'),
-      orderBy('takenAtMillis', 'desc'),
-      limit(100),
-    );
+    // Web portal schema: artifacts/{appId}/users/{uid}/userData/{documentId}
+    // Never switch to /users/{uid}/...; firestore.rules intentionally denies it.
+    const userDataDoc = (documentId) => doc(db, 'artifacts', FIRESTORE_APP_ID, 'users', user.uid, 'userData', documentId);
 
     const unsubscribeSessions = onSnapshot(
-      sessionsRef,
+      userDataDoc('studySessions'),
       (snapshot) => {
-        if (mounted) setStudySessions(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
+        if (mounted) {
+          const logs = snapshot.exists() ? (snapshot.data().logs || []) : [];
+          setStudySessions(logs.map((item, index) => ({ id: item.id || `web-session-${index}`, ...item }))
+            .sort((a, b) => sessionTimestamp(b) - sessionTimestamp(a)).slice(0, 100));
+        }
         markReady();
       },
       handleSyncError,
     );
     const unsubscribeSyllabus = onSnapshot(
-      syllabusRef,
+      userDataDoc('syllabus'),
       (snapshot) => {
         if (mounted) {
+          const data = snapshot.exists() ? snapshot.data() : {};
+          const completed = new Set([...(data.subtopics || []), ...(data.pyqs || [])]);
           const nextState = {};
-          snapshot.docs.forEach((item) => { nextState[item.id] = item.data(); });
+          SYLLABUS_TOPICS.forEach((topic) => {
+            nextState[topic.id] = { topicId: topic.id, subject: topic.subject, title: topic.title, done: completed.has(topic.id) };
+          });
           setSyllabusState(nextState);
         }
         markReady();
@@ -224,9 +219,19 @@ export default function App() {
       handleSyncError,
     );
     const unsubscribeTests = onSnapshot(
-      testsRef,
+      userDataDoc('mocks'),
       (snapshot) => {
-        if (mounted) setTests(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
+        if (mounted) {
+          const savedTests = snapshot.exists() ? (snapshot.data().tests || {}) : {};
+          setTests(Object.entries(savedTests).map(([id, item]) => ({
+            id,
+            type: item.type || 'Mock Test',
+            name: item.name || id,
+            scorePercent: Number(item.scorePercent ?? item.score ?? 0),
+            takenAtMillis: Number(item.takenAtMillis || item.timestamp || 0),
+            completed: Boolean(item.completed),
+          })).sort((a, b) => b.takenAtMillis - a.takenAtMillis).slice(0, 100));
+        }
         markReady();
       },
       handleSyncError,
@@ -440,14 +445,21 @@ function StudentDashboard({ dataError, dataLoading, onSignOut, studySessions, sy
       ? timerStartedAt - timerBaseSeconds * 1000
       : endedAtMillis - elapsedSeconds * 1000;
     try {
-      await addDoc(collection(db, 'users', user.uid, 'studySessions'), {
+      const currentLogs = studySessions;
+      const session = {
+        id: `s_${endedAtMillis}`,
         mode: timerMode,
         durationSeconds: elapsedSeconds,
         startedAtMillis,
         endedAtMillis,
+        timestamp: endedAtMillis,
+        dateStr: getDayKey(endedAtMillis),
         dayKey: getDayKey(endedAtMillis),
-        createdAt: serverTimestamp(),
-      });
+      };
+      await setDoc(doc(db, 'artifacts', FIRESTORE_APP_ID, 'users', user.uid, 'userData', 'studySessions'), {
+        logs: [session, ...currentLogs].slice(0, 1500),
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
       setTimerRunning(false);
       setTimerBaseSeconds(0);
       setTimerStartedAt(null);
@@ -462,18 +474,17 @@ function StudentDashboard({ dataError, dataLoading, onSignOut, studySessions, sy
     if (!user?.uid) return;
     const done = !Boolean(syllabusState[topic.id]?.done);
     try {
-      await setDoc(
-        doc(db, 'users', user.uid, 'syllabus', topic.id),
-        {
-          topicId: topic.id,
-          subject: topic.subject,
-          title: topic.title,
-          done,
-          updatedAtMillis: Date.now(),
-          updatedAt: serverTimestamp(),
-        },
-        { merge: true },
-      );
+      const syllabusRef = doc(db, 'artifacts', FIRESTORE_APP_ID, 'users', user.uid, 'userData', 'syllabus');
+      const syllabusSnapshot = await syllabusRef.get();
+      const existing = syllabusSnapshot.exists ? syllabusSnapshot.data() : {};
+      const subtopics = new Set(existing.subtopics || []);
+      if (done) subtopics.add(topic.id); else subtopics.delete(topic.id);
+      await setDoc(syllabusRef, {
+        subtopics: Array.from(subtopics),
+        pyqs: existing.pyqs || [],
+        updatedAtMillis: Date.now(),
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
     } catch (toggleError) {
       Alert.alert('Checklist update nahi hua', errorMessage(toggleError, 'Please retry.'));
     }
@@ -489,14 +500,26 @@ function StudentDashboard({ dataError, dataLoading, onSignOut, studySessions, sy
     setSavingTest(true);
     const takenAtMillis = Date.now();
     try {
-      await addDoc(collection(db, 'users', user.uid, 'tests'), {
-        type: testType,
-        name: testName.trim() || `${testType} • ${formatDate(takenAtMillis)}`,
-        scorePercent: score,
-        takenAtMillis,
-        dayKey: getDayKey(takenAtMillis),
-        createdAt: serverTimestamp(),
-      });
+      const mocksRef = doc(db, 'artifacts', FIRESTORE_APP_ID, 'users', user.uid, 'userData', 'mocks');
+      const mocksSnapshot = await mocksRef.get();
+      const existingTests = mocksSnapshot.exists ? (mocksSnapshot.data().tests || {}) : {};
+      const testId = `android_${takenAtMillis}`;
+      await setDoc(mocksRef, {
+        tests: {
+          ...existingTests,
+          [testId]: {
+            type: testType,
+            name: testName.trim() || `${testType} • ${formatDate(takenAtMillis)}`,
+            score,
+            scorePercent: score,
+            takenAtMillis,
+            timestamp: takenAtMillis,
+            completed: true,
+            dayKey: getDayKey(takenAtMillis),
+          },
+        },
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
       setTestName('');
       setTestScore('');
     } catch (saveError) {
@@ -524,9 +547,14 @@ function StudentDashboard({ dataError, dataLoading, onSignOut, studySessions, sy
           <Text style={styles.dashboardKicker}>JEE 2027 • SECURE PORTAL</Text>
           <Text style={styles.dashboardTitle}>{screenLabel}</Text>
         </View>
-        <TouchableOpacity accessibilityLabel="Open profile" accessibilityRole="button" onPress={() => setActiveTab('profile')} style={[styles.avatarButton, activeTab === 'profile' && styles.avatarButtonActive]}>
-          <Text style={styles.avatarText}>{initial}</Text>
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <TouchableOpacity accessibilityLabel="Open profile" accessibilityRole="button" onPress={() => setActiveTab('profile')} style={[styles.avatarButton, activeTab === 'profile' && styles.avatarButtonActive]}>
+            <Text style={styles.avatarText}>{initial}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity accessibilityLabel="Sign out securely" accessibilityRole="button" onPress={() => Alert.alert('Sign out?', 'Kya aap apne account se sign out karna chahte hain?', [{ text: 'Cancel', style: 'cancel' }, { text: 'Sign out', style: 'destructive', onPress: onSignOut }])} style={styles.headerSignOutButton}>
+            <Text style={styles.headerSignOutText}>Sign out</Text>
+          </TouchableOpacity>
+        </View>
       </View>
       {!!dataError && <View style={styles.syncWarning}><Text style={styles.syncWarningText}>{dataError}</Text></View>}
       <ScrollView contentContainerStyle={styles.dashboardScroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
@@ -698,7 +726,7 @@ function ProfileScreen({ onSignOut, user }) {
       <ScreenIntro eyebrow="YOUR PROFILE" text="Yeh app dashboard data ko authenticated Firebase UID ke under hi read aur write karta hai." title="Private by design" />
       <View style={styles.profileCard}><View style={styles.profileAvatar}><Text style={styles.profileAvatarText}>{(user?.displayName || 'S').charAt(0).toUpperCase()}</Text></View><Text style={styles.profileName}>{user?.displayName || 'Saumya'}</Text><Text style={styles.profileRole}>JEE 2027 aspirant</Text><Text selectable style={styles.uidText}>UID: {user?.uid}</Text></View>
       <Text style={styles.sectionHeading}>Security status</Text>
-      <View style={styles.securityListCard}><SecurityRow icon="✓" text="App Check: debug in dev, Play Integrity in release" /><SecurityRow icon="✓" text="Login callable: loginWithAccessCode in us-central1" /><SecurityRow icon="✓" text="Dashboard data: /users/{uid}/… only" /></View>
+      <View style={styles.securityListCard}><SecurityRow icon="✓" text="App Check: debug in dev, Play Integrity in release" /><SecurityRow icon="✓" text="Login callable: loginWithAccessCode in us-central1" /><SecurityRow icon="✓" text="Dashboard data: authenticated UID under artifacts/{appId}/users/{uid}/userData" /></View>
       <TouchableOpacity onPress={onSignOut} style={styles.signOutButton}><Text style={styles.signOutButtonText}>Sign out securely</Text></TouchableOpacity>
       <Text style={styles.profileFootnote}>Sign out ke baad locally cached Firebase session bhi close ho jayega.</Text>
     </>
@@ -811,6 +839,9 @@ const styles = StyleSheet.create({
   secondaryButtonText: { color: '#e2e8f0', fontSize: 14, fontWeight: '800' },
   dashboardPage: { flex: 1, backgroundColor: '#080d1b' },
   dashboardHeader: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 13, paddingBottom: 14 },
+  headerActions: { alignItems: 'center', flexDirection: 'row', gap: 9 },
+  headerSignOutButton: { backgroundColor: '#26344e', borderColor: '#384660', borderRadius: 12, borderWidth: 1, paddingHorizontal: 11, paddingVertical: 10 },
+  headerSignOutText: { color: '#fda4af', fontSize: 11, fontWeight: '800' },
   dashboardKicker: { color: '#73829d', fontSize: 9, fontWeight: '900', letterSpacing: 1.35, marginBottom: 3 },
   dashboardTitle: { color: '#f8fafc', fontSize: 25, fontWeight: '900', letterSpacing: -0.7 },
   avatarButton: { alignItems: 'center', backgroundColor: '#202d48', borderColor: '#384660', borderRadius: 18, borderWidth: 1, height: 42, justifyContent: 'center', width: 42 },
