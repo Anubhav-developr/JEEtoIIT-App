@@ -1,0 +1,21 @@
+{
+  "expo": {
+    "name": "Saumya JEE 2027",
+    "slug": "saumya-jee-android",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "android": {
+      "package": "com.saumyajee.portal",
+      "googleServicesFile": "./google-services.json",
+      "adaptiveIcon": {
+        "backgroundColor": "#0B1020"
+      }
+    },
+    "plugins": [
+      "@react-native-firebase/app",
+      "@react-native-firebase/app-check"
+    ]
+  }
+}

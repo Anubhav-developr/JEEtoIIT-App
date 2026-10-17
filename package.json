@@ -1,0 +1,22 @@
+{
+  "name": "saumya-jee-android",
+  "version": "1.0.0",
+  "private": true,
+  "main": "node_modules/expo/AppEntry.js",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "prebuild:android": "expo prebuild --platform android"
+  },
+  "dependencies": {
+    "@react-native-firebase/app": "latest",
+    "@react-native-firebase/app-check": "latest",
+    "@react-native-firebase/auth": "latest",
+    "@react-native-firebase/firestore": "latest",
+    "@react-native-firebase/functions": "latest",
+    "expo": "latest",
+    "expo-dev-client": "latest",
+    "react": "19.3.0",
+    "react-native": "latest"
+  }
+}
