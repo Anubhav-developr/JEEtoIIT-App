@@ -15,7 +15,15 @@
     "plugins": [
       "@react-native-firebase/app",
       "@react-native-firebase/app-check",
-      "expo-sharing"
+      "expo-sharing",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Saumya JEE 2027 to select a profile photo.",
+          "cameraPermission": "Allow Saumya JEE 2027 to take a profile photo.",
+          "microphonePermission": false
+        }
+      ]
     ]
   }
 }
