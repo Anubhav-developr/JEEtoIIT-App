@@ -1343,14 +1343,76 @@ export function ReportsScreen({ summary, tests }) {
     ...summary.weekDays.map((day) => day.seconds),
     1,
   );
-  const recentScores = tests.slice(0, 5).reverse();
+
+  const goalMinutes = summary.dailyGoalMinutes || 240;
+  const goalSeconds = goalMinutes * 60;
+  const goalPercent = Math.min(
+    100,
+    Math.round((summary.todaySeconds / goalSeconds) * 100),
+  );
+
+  const subjectRows = (summary.subjectBreakdown || []).filter(
+    (row) => row.seconds > 0,
+  );
+
+  const activityRows = (summary.activityBreakdown || []).filter(
+    (row) => row.seconds > 0,
+  );
+
+  const maxSubjectSeconds = Math.max(
+    1,
+    ...subjectRows.map((row) => row.seconds),
+  );
+
+  const maxActivitySeconds = Math.max(
+    1,
+    ...activityRows.map((row) => row.seconds),
+  );
+
+  const recentScores = [...tests].slice(0, 5).reverse();
+
   return (
     <>
       <ScreenIntro
         eyebrow="PROGRESS REPORT"
-        text="Study sessions aur saved test scores ka clear, personal snapshot."
-        title="See the signal"
+        title="Study analytics"
+        text="Understand your consistency, study balance and where your time is going."
       />
+
+      <View style={styles.goalCard}>
+        <View style={styles.goalCardHeader}>
+          <View style={styles.goalCardTitleWrap}>
+            <Text style={styles.goalCardEyebrow}>TODAY'S STUDY GOAL</Text>
+            <Text style={styles.goalCardTitle}>
+              {formatDuration(summary.todaySeconds)}{" "}
+              <Text style={styles.goalCardMuted}>/ {goalMinutes / 60}h</Text>
+            </Text>
+          </View>
+
+          <View style={styles.goalBadge}>
+            <Text style={styles.goalBadgeText}>{goalPercent}%</Text>
+          </View>
+        </View>
+
+        <View style={styles.goalTrack}>
+          <View
+            style={[
+              styles.goalFill,
+              { width: `${goalPercent}%` },
+              goalPercent >= 100 && styles.goalFillComplete,
+            ]}
+          />
+        </View>
+
+        <Text style={styles.goalFootnote}>
+          {goalPercent >= 100
+            ? "Daily goal reached. Great consistency!"
+            : `${formatDuration(
+                Math.max(0, goalSeconds - summary.todaySeconds),
+              )} left to reach today's goal.`}
+        </Text>
+      </View>
+
       <View style={styles.reportMetricGrid}>
         <ReportMetric
           accent="#8b5cf6"
@@ -1381,6 +1443,7 @@ export function ReportsScreen({ summary, tests }) {
           value={String(summary.totalSessions)}
         />
       </View>
+
       <View style={styles.chartCard}>
         <View style={styles.chartHeader}>
           <View>
@@ -1391,6 +1454,7 @@ export function ReportsScreen({ summary, tests }) {
             {formatDuration(summary.weekSeconds)}
           </Text>
         </View>
+
         <View style={styles.barChart}>
           {summary.weekDays.map((day) => (
             <View key={day.key} style={styles.barColumn}>
@@ -1399,7 +1463,10 @@ export function ReportsScreen({ summary, tests }) {
                   style={[
                     styles.barFill,
                     {
-                      height: `${Math.max(7, Math.round((day.seconds / maxDaySeconds) * 100))}%`,
+                      height: `${Math.max(
+                        7,
+                        Math.round((day.seconds / maxDaySeconds) * 100),
+                      )}%`,
                     },
                   ]}
                 />
@@ -1409,22 +1476,140 @@ export function ReportsScreen({ summary, tests }) {
           ))}
         </View>
       </View>
+
       <View style={styles.reportSplitCard}>
         <View style={styles.reportSplitItem}>
-          <Text style={styles.reportSplitLabel}>ACTIVE</Text>
+          <Text style={styles.reportSplitLabel}>ACTIVE LEARNING</Text>
           <Text style={styles.reportSplitValue}>
             {formatDuration(summary.activeSeconds)}
           </Text>
+          <Text style={styles.breakdownPercent}>
+            {summary.totalSeconds
+              ? Math.round((summary.activeSeconds / summary.totalSeconds) * 100)
+              : 0}
+            % of tracked time
+          </Text>
         </View>
+
         <View style={styles.reportDivider} />
+
         <View style={styles.reportSplitItem}>
-          <Text style={styles.reportSplitLabel}>PASSIVE</Text>
+          <Text style={styles.reportSplitLabel}>PASSIVE REVISION</Text>
           <Text style={styles.reportSplitValue}>
             {formatDuration(summary.passiveSeconds)}
           </Text>
+          <Text style={styles.breakdownPercent}>
+            {summary.totalSeconds
+              ? Math.round(
+                  (summary.passiveSeconds / summary.totalSeconds) * 100,
+                )
+              : 0}
+            % of tracked time
+          </Text>
         </View>
       </View>
+
+      <Text style={styles.sectionHeading}>Time by subject · last 7 days</Text>
+
+      <View style={styles.breakdownCard}>
+        {subjectRows.length ? (
+          subjectRows.map((row) => (
+            <View key={row.subject} style={styles.breakdownRow}>
+              <View style={styles.breakdownTopline}>
+                <View style={styles.breakdownLabelWrap}>
+                  <View
+                    style={[
+                      styles.breakdownDot,
+                      {
+                        backgroundColor:
+                          SUBJECT_ACCENTS[row.subject] || "#818cf8",
+                      },
+                    ]}
+                  />
+                  <Text style={styles.breakdownName}>{row.subject}</Text>
+                </View>
+                <Text style={styles.breakdownValue}>
+                  {formatDuration(row.seconds)}
+                </Text>
+              </View>
+
+              <View style={styles.breakdownTrack}>
+                <View
+                  style={[
+                    styles.breakdownFill,
+                    {
+                      width: `${Math.round(
+                        (row.seconds / maxSubjectSeconds) * 100,
+                      )}%`,
+                      backgroundColor:
+                        SUBJECT_ACCENTS[row.subject] || "#818cf8",
+                    },
+                  ]}
+                />
+              </View>
+            </View>
+          ))
+        ) : (
+          <EmptyState
+            icon="◷"
+            text="New saved sessions with a subject selected will appear here. Older sessions still count in overall totals."
+          />
+        )}
+      </View>
+
+      <Text style={styles.sectionHeading}>Time by activity · last 7 days</Text>
+
+      <View style={styles.breakdownCard}>
+        {activityRows.length ? (
+          activityRows.slice(0, 8).map((row) => (
+            <View
+              key={`${row.mode}::${row.activity}`}
+              style={styles.breakdownRow}
+            >
+              <View style={styles.breakdownTopline}>
+                <View style={styles.breakdownLabelWrap}>
+                  <View
+                    style={[
+                      styles.breakdownDot,
+                      {
+                        backgroundColor:
+                          row.mode === "active" ? "#8b5cf6" : "#14b8a6",
+                      },
+                    ]}
+                  />
+                  <Text style={styles.breakdownName}>{row.activity}</Text>
+                </View>
+                <Text style={styles.breakdownValue}>
+                  {formatDuration(row.seconds)}
+                </Text>
+              </View>
+
+              <View style={styles.breakdownTrack}>
+                <View
+                  style={[
+                    styles.breakdownFill,
+                    {
+                      width: `${Math.round(
+                        (row.seconds / maxActivitySeconds) * 100,
+                      )}%`,
+                      backgroundColor:
+                        row.mode === "active" ? "#8b5cf6" : "#14b8a6",
+                    },
+                  ]}
+                />
+              </View>
+            </View>
+          ))
+        ) : (
+          <EmptyState
+            icon="✦"
+            text="Select a study activity in the timer; new saved sessions will populate this chart."
+          />
+        )}
+      </View>
+
       <Text style={styles.sectionHeading}>Recent score trend</Text>
+
       <View style={styles.scoreTrendCard}>
         {recentScores.length ? (
           recentScores.map((test) => (
@@ -1437,7 +1622,10 @@ export function ReportsScreen({ summary, tests }) {
                   style={[
                     styles.scoreTrendFill,
                     {
-                      width: `${Math.min(100, Math.max(0, Number(test.scorePercent) || 0))}%`,
+                      width: `${Math.min(
+                        100,
+                        Math.max(0, Number(test.scorePercent) || 0),
+                      )}%`,
                     },
                   ]}
                 />
@@ -1589,80 +1777,136 @@ function buildSummary(studySessions, syllabusState, tests) {
   const sevenDaysAgo = new Date(now);
   sevenDaysAgo.setHours(0, 0, 0, 0);
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
+
   const sessions = [...studySessions].sort(
     (a, b) => sessionTimestamp(b) - sessionTimestamp(a),
   );
+
+  const durationOf = (session) =>
+    Math.max(0, Number(session.durationSeconds) || 0);
+
+  const sessionDayKey = (session) =>
+    session.dayKey || getDayKey(sessionTimestamp(session));
+
+  const todaySessions = sessions.filter(
+    (session) => sessionDayKey(session) === todayKey,
+  );
+
+  const weekSessions = sessions.filter(
+    (session) => sessionTimestamp(session) >= sevenDaysAgo.getTime(),
+  );
+
   const totalSeconds = sessions.reduce(
-    (total, session) => total + (Number(session.durationSeconds) || 0),
+    (total, session) => total + durationOf(session),
     0,
   );
-  const todaySeconds = sessions
-    .filter((session) => session.dayKey === todayKey)
-    .reduce(
-      (total, session) => total + (Number(session.durationSeconds) || 0),
-      0,
-    );
-  const weekSeconds = sessions
-    .filter((session) => sessionTimestamp(session) >= sevenDaysAgo.getTime())
-    .reduce(
-      (total, session) => total + (Number(session.durationSeconds) || 0),
-      0,
-    );
+
+  const todaySeconds = todaySessions.reduce(
+    (total, session) => total + durationOf(session),
+    0,
+  );
+
+  const weekSeconds = weekSessions.reduce(
+    (total, session) => total + durationOf(session),
+    0,
+  );
+
   const activeSeconds = sessions
     .filter((session) => session.mode === "active")
-    .reduce(
-      (total, session) => total + (Number(session.durationSeconds) || 0),
-      0,
-    );
+    .reduce((total, session) => total + durationOf(session), 0);
+
   const passiveSeconds = sessions
     .filter((session) => session.mode === "passive")
-    .reduce(
-      (total, session) => total + (Number(session.durationSeconds) || 0),
-      0,
-    );
+    .reduce((total, session) => total + durationOf(session), 0);
+
   const completedTopicIds = new Set(
     Object.entries(syllabusState)
       .filter(([, value]) => Boolean(value?.done))
       .map(([id]) => id),
   );
+
   const completedTopics = completedTopicIds.size;
+
   const numericScores = tests
     .map((test) => Number(test.scorePercent))
-    .filter((score) => !Number.isNaN(score));
+    .filter((score) => Number.isFinite(score));
+
   const testAverage = numericScores.length
     ? numericScores.reduce((total, score) => total + score, 0) /
       numericScores.length
     : null;
+
   const bestScore = numericScores.length ? Math.max(...numericScores) : null;
+
   const weekDays = Array.from({ length: 7 }, (_, index) => {
     const date = new Date(sevenDaysAgo);
     date.setDate(sevenDaysAgo.getDate() + index);
     const key = getDayKey(date);
+
     return {
       key,
-      label: date.toLocaleDateString(undefined, { weekday: "narrow" }),
-      seconds: sessions
-        .filter((session) => session.dayKey === key)
-        .reduce(
-          (total, session) => total + (Number(session.durationSeconds) || 0),
-          0,
-        ),
+      label: date.toLocaleDateString(undefined, {
+        weekday: "narrow",
+      }),
+      seconds: weekSessions
+        .filter((session) => sessionDayKey(session) === key)
+        .reduce((total, session) => total + durationOf(session), 0),
     };
   });
+
+  // New optional metadata only; older sessions remain included in totals.
+  const subjectTotals = {};
+  const activityTotals = {};
+
+  weekSessions.forEach((session) => {
+    const seconds = durationOf(session);
+    const subject = String(session.subject || "").trim();
+    const activity = String(session.activity || "").trim();
+
+    if (subject) {
+      subjectTotals[subject] = (subjectTotals[subject] || 0) + seconds;
+    }
+
+    if (activity) {
+      const key = `${session.mode || "unknown"}::${activity}`;
+
+      if (!activityTotals[key]) {
+        activityTotals[key] = {
+          activity,
+          mode: session.mode || "unknown",
+          seconds: 0,
+        };
+      }
+
+      activityTotals[key].seconds += seconds;
+    }
+  });
+
+  const subjectBreakdown = Object.entries(subjectTotals)
+    .map(([subject, seconds]) => ({ subject, seconds }))
+    .sort((a, b) => b.seconds - a.seconds);
+
+  const activityBreakdown = Object.values(activityTotals).sort(
+    (a, b) => b.seconds - a.seconds,
+  );
+
+  const recentTests = [...tests]
+    .sort((a, b) => Number(b.takenAtMillis || 0) - Number(a.takenAtMillis || 0))
+    .slice(0, 4);
+
   return {
     activeSeconds,
+    activityBreakdown,
     bestScore,
     completedTopicIds,
     completedTopics,
+    dailyGoalMinutes: 240,
     passiveSeconds,
     recentSessions: sessions.slice(0, 4),
-    recentTests: [...tests]
-      .sort(
-        (a, b) => Number(b.takenAtMillis || 0) - Number(a.takenAtMillis || 0),
-      )
-      .slice(0, 4),
+    recentTests,
+    subjectBreakdown,
     syllabusPercent: Math.round(
-      (completedTopics / SYLLABUS_TOPICS.length) * 100,
+      (completedTopics / Math.max(SYLLABUS_TOPICS.length, 1)) * 100,
     ),
     testAverage,
     todaySeconds,
@@ -2763,6 +3007,131 @@ const styles = StyleSheet.create({
     textAlign: "right",
     width: 34,
   },
+
+  goalCard: {
+    backgroundColor: "#151b35",
+    borderColor: "#3a3e77",
+    borderRadius: 18,
+    borderWidth: 1,
+    marginBottom: 13,
+    padding: 16,
+  },
+  goalCardHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 14,
+  },
+  goalCardTitleWrap: { flex: 1, paddingRight: 8 },
+  goalCardEyebrow: {
+    color: "#a5b4fc",
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 1,
+    marginBottom: 7,
+  },
+  goalCardTitle: {
+    color: "#f8fafc",
+    fontSize: 24,
+    fontWeight: "900",
+  },
+  goalCardMuted: {
+    color: "#8b9bb5",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  goalBadge: {
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#29265f",
+    borderColor: "#5a56a9",
+    borderWidth: 1,
+    borderRadius: 15,
+    minWidth: 58,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+  },
+  goalBadgeText: {
+    color: "#e0e7ff",
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  goalTrack: {
+    height: 9,
+    backgroundColor: "#27324b",
+    borderRadius: 8,
+    overflow: "hidden",
+  },
+  goalFill: {
+    height: "100%",
+    backgroundColor: "#818cf8",
+    borderRadius: 8,
+  },
+  goalFillComplete: {
+    backgroundColor: "#2dd4bf",
+  },
+  goalFootnote: {
+    color: "#9aa8bd",
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 9,
+  },
+  breakdownCard: {
+    backgroundColor: "#111a2e",
+    borderColor: "#24324c",
+    borderRadius: 17,
+    borderWidth: 1,
+    marginBottom: 17,
+    padding: 15,
+  },
+  breakdownRow: {
+    marginBottom: 15,
+  },
+  breakdownTopline: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+  breakdownLabelWrap: {
+    alignItems: "center",
+    flexDirection: "row",
+    flex: 1,
+    paddingRight: 8,
+  },
+  breakdownDot: {
+    height: 8,
+    width: 8,
+    borderRadius: 4,
+    marginRight: 8,
+  },
+  breakdownName: {
+    color: "#dbe4f2",
+    fontSize: 11,
+    fontWeight: "800",
+    flex: 1,
+  },
+  breakdownValue: {
+    color: "#f1f5f9",
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  breakdownTrack: {
+    height: 7,
+    backgroundColor: "#25334d",
+    borderRadius: 5,
+    overflow: "hidden",
+  },
+  breakdownFill: {
+    height: "100%",
+    borderRadius: 5,
+  },
+  breakdownPercent: {
+    color: "#7f8da6",
+    fontSize: 9,
+    marginTop: 5,
+  },
+
   profileCard: {
     alignItems: "center",
     backgroundColor: "#151b35",
