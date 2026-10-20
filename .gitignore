@@ -2,10 +2,16 @@ node_modules/
 .expo/
 dist/
 web-build/
-android/
 ios/
 google-services.json
 *.keystore
 *.jks
 .env
 .env.*
+# Local IDE and generated debug files
+.idea/
+build-error.log
+build-full.log
+export-log.txt
+jee-app-logcat.txt
+jee-logcat.txt

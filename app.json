@@ -5,7 +5,6 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
-    "newArchEnabled": true,
     "android": {
       "package": "com.saumyajee.portal",
       "googleServicesFile": "./google-services.json",
@@ -15,7 +14,8 @@
     },
     "plugins": [
       "@react-native-firebase/app",
-      "@react-native-firebase/app-check"
+      "@react-native-firebase/app-check",
+      "expo-sharing"
     ]
   }
 }
