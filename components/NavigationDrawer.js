@@ -7,6 +7,7 @@ import {
   ScrollView,
   StyleSheet,
   Pressable,
+  Image,
 } from "react-native";
 
 const MENU_ITEMS = [
@@ -25,8 +26,14 @@ export default function NavigationDrawer({
   onClose,
   onSignOut,
   user,
+  photoURL = "",
 }) {
-  const displayName = user?.displayName || user?.email || "JEE 2027 Student";
+  const emailName = String(user?.email || "")
+    .split("@")[0]
+    .replace(/[._-]+/g, " ")
+    .trim();
+  const displayName = user?.displayName?.trim() || emailName || "JEE 2027 Student";
+  const initials = getInitials(displayName);
 
   return (
     <Modal
@@ -65,9 +72,16 @@ export default function NavigationDrawer({
 
           <View style={styles.studentCard}>
             <View style={styles.studentAvatar}>
-              <Text style={styles.studentAvatarText}>
-                {String(displayName).charAt(0).toUpperCase()}
-              </Text>
+              {photoURL ? (
+                <Image
+                  accessibilityLabel={`${displayName} profile photo`}
+                  source={{ uri: photoURL }}
+                  resizeMode="cover"
+                  style={styles.studentAvatarImage}
+                />
+              ) : (
+                <Text style={styles.studentAvatarText}>{initials}</Text>
+              )}
             </View>
             <View style={styles.studentInfo}>
               <Text numberOfLines={1} style={styles.studentName}>
@@ -149,6 +163,23 @@ export default function NavigationDrawer({
         </View>
       </View>
     </Modal>
+  );
+}
+
+function getInitials(value) {
+  const clean = String(value || "").trim();
+  const name = clean.includes("@")
+    ? clean.slice(0, clean.indexOf("@")).replace(/[._-]+/g, " ")
+    : clean;
+
+  return (
+    name
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part.charAt(0))
+      .join("")
+      .toUpperCase() || "S"
   );
 }
 
@@ -235,11 +266,19 @@ const styles = StyleSheet.create({
     backgroundColor: "#312e81",
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "#4f46e5",
+  },
+  studentAvatarImage: {
+    width: "100%",
+    height: "100%",
   },
   studentAvatarText: {
     color: "#c7d2fe",
     fontWeight: "900",
     fontSize: 16,
+    letterSpacing: 0.5,
   },
   studentInfo: {
     flex: 1,

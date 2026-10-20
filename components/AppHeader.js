@@ -4,6 +4,7 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
+  Image,
   Platform,
   StatusBar,
 } from "react-native";
@@ -11,9 +12,13 @@ import {
 export default function AppHeader({
   title = "JEEtoIIT",
   subtitle = "STUDENT PORTAL",
+  displayName = "Student",
+  photoURL = "",
   onMenuPress,
   onProfilePress,
 }) {
+  const initials = getInitials(displayName);
+
   return (
     <View style={styles.header}>
       <TouchableOpacity
@@ -36,9 +41,35 @@ export default function AppHeader({
         onPress={onProfilePress}
         style={styles.avatar}
       >
-        <Text style={styles.avatarText}>JI</Text>
+        {photoURL ? (
+          <Image
+            accessibilityLabel={`${displayName} profile photo`}
+            source={{ uri: photoURL }}
+            resizeMode="cover"
+            style={styles.avatarImage}
+          />
+        ) : (
+          <Text style={styles.avatarText}>{initials}</Text>
+        )}
       </TouchableOpacity>
     </View>
+  );
+}
+
+function getInitials(value) {
+  const clean = String(value || "").trim();
+  const name = clean.includes("@")
+    ? clean.slice(0, clean.indexOf("@")).replace(/[._-]+/g, " ")
+    : clean;
+
+  return (
+    name
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part.charAt(0))
+      .join("")
+      .toUpperCase() || "S"
   );
 }
 
@@ -89,10 +120,18 @@ const styles = StyleSheet.create({
     backgroundColor: "#4f46e5",
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "#818cf8",
+  },
+  avatarImage: {
+    width: "100%",
+    height: "100%",
   },
   avatarText: {
     color: "#ffffff",
     fontWeight: "900",
     fontSize: 14,
+    letterSpacing: 0.5,
   },
 });

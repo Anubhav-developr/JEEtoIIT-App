@@ -603,6 +603,8 @@ export function StudentDashboard({
       <AppHeader
         title={screenLabel}
         subtitle="JEE 2027 • SECURE PORTAL"
+        displayName={user?.displayName || user?.email || "JEE 2027 Student"}
+        photoURL={profilePhotoURL}
         onMenuPress={() => setDrawerVisible(true)}
         onProfilePress={() => setActiveTab("profile")}
       />
@@ -611,6 +613,7 @@ export function StudentDashboard({
         visible={drawerVisible}
         activeTab={activeTab}
         user={user}
+        photoURL={profilePhotoURL}
         onClose={() => setDrawerVisible(false)}
         onNavigate={(tab) => {
           setActiveTab(tab);
