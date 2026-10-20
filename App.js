@@ -39,6 +39,7 @@ import {
   initializeAppCheck,
 } from "@react-native-firebase/app-check";
 import { StudentDashboard } from "./components/StudentDashboard";
+import { StudentRegistrationScreen } from "./components/StudentRegistrationScreen";
 const firebaseApp = getApp();
 const auth = getAuth(firebaseApp);
 const functions = getFunctions(firebaseApp, "us-central1");
@@ -175,6 +176,7 @@ export default function App() {
   const [tests, setTests] = useState([]);
   const [dataLoading, setDataLoading] = useState(false);
   const [dataError, setDataError] = useState("");
+  const [showRegistration, setShowRegistration] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -375,6 +377,18 @@ async function initializeSecurity() {
   if (!authReady || (!appCheckReady && !appCheckError))
     return <SecureLoadingScreen />;
   if (!user) {
+    if (showRegistration) {
+      return (
+        <StudentRegistrationScreen
+          appCheckInstance={appCheckInstance}
+          appCheckReady={appCheckReady}
+          appCheckError={appCheckError}
+          functions={functions}
+          onBack={() => setShowRegistration(false)}
+        />
+      );
+    }
+
     return (
       <AccessCodeScreen
         appCheckError={appCheckError}
@@ -391,6 +405,10 @@ async function initializeSecurity() {
           )
         }
         onLogin={login}
+        onRegisterPress={() => {
+          setError("");
+          setShowRegistration(true);
+        }}
       />
     );
   }
@@ -434,6 +452,7 @@ function AccessCodeScreen({
   error,
   onChangeCode,
   onLogin,
+  onRegisterPress,
 }) {
   return (
     <SafeAreaView style={styles.loginPage}>
@@ -501,6 +520,29 @@ function AccessCodeScreen({
                 Protected by Firebase Authentication and App Check
               </Text>
             </View>
+            <TouchableOpacity
+              onPress={onRegisterPress}
+              activeOpacity={0.8}
+              style={{
+                marginTop: 18,
+                paddingVertical: 13,
+                paddingHorizontal: 16,
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: "#6366F1",
+                alignItems: "center",
+              }}
+            >
+              <Text
+                style={{
+                  color: "#6366F1",
+                  fontSize: 15,
+                  fontWeight: "600",
+                }}
+              >
+                New here? Register Now
+              </Text>
+            </TouchableOpacity>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
