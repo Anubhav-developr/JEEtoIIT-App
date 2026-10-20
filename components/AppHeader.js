@@ -1,5 +1,12 @@
 import React from "react";
-import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  Platform,
+  StatusBar,
+} from "react-native";
 
 export default function AppHeader({
   title = "JEEtoIIT",
@@ -40,7 +47,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 18,
-    paddingTop: 13,
+    paddingTop:
+      Platform.OS === "android" ? (StatusBar.currentHeight || 24) + 8 : 18,
     paddingBottom: 14,
     backgroundColor: "#080d1b",
   },

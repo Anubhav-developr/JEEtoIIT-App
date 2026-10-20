@@ -13,6 +13,13 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import {
+  JEE_MAIN_SYLLABUS_UNITS,
+  JEE_MAIN_SUBJECT_ORDER,
+  JEE_MAIN_SUBJECT_ACCENTS,
+  SYLLABUS_TOPICS,
+  splitSyllabusTopics,
+} from "./jeeMainSyllabus";
 
 import { getApp } from "@react-native-firebase/app";
 
@@ -37,70 +44,19 @@ const NAV_ITEMS = [
   { key: "reports", label: "Reports", icon: "↗" },
 ];
 
-const SYLLABUS_TOPICS = [
-  {
-    id: "physics-units",
-    subject: "Physics",
-    title: "Units, dimensions & vectors",
-  },
-  {
-    id: "physics-kinematics",
-    subject: "Physics",
-    title: "Kinematics & laws of motion",
-  },
-  {
-    id: "physics-work-energy",
-    subject: "Physics",
-    title: "Work, energy & power",
-  },
-  { id: "physics-electrostatics", subject: "Physics", title: "Electrostatics" },
-  {
-    id: "physics-current-electricity",
-    subject: "Physics",
-    title: "Current electricity",
-  },
-  {
-    id: "chemistry-mole",
-    subject: "Chemistry",
-    title: "Mole concept & stoichiometry",
-  },
-  { id: "chemistry-atomic", subject: "Chemistry", title: "Atomic structure" },
-  { id: "chemistry-bonding", subject: "Chemistry", title: "Chemical bonding" },
-  {
-    id: "chemistry-equilibrium",
-    subject: "Chemistry",
-    title: "Chemical equilibrium",
-  },
-  {
-    id: "chemistry-organic-basics",
-    subject: "Chemistry",
-    title: "Organic chemistry basics",
-  },
-  {
-    id: "maths-sets",
-    subject: "Mathematics",
-    title: "Sets, relations & functions",
-  },
-  {
-    id: "maths-quadratic",
-    subject: "Mathematics",
-    title: "Quadratic equations",
-  },
-  { id: "maths-trigonometry", subject: "Mathematics", title: "Trigonometry" },
-  { id: "maths-limits", subject: "Mathematics", title: "Limits & continuity" },
-  {
-    id: "maths-differentiation",
-    subject: "Mathematics",
-    title: "Differentiation",
-  },
-];
-
-const SUBJECT_ORDER = ["Physics", "Chemistry", "Mathematics"];
-const SUBJECT_ACCENTS = {
-  Physics: "#8b5cf6",
-  Chemistry: "#14b8a6",
-  Mathematics: "#f59e0b",
+const SUBJECT_ORDER = JEE_MAIN_SUBJECT_ORDER;
+const SUBJECT_ACCENTS = JEE_MAIN_SUBJECT_ACCENTS;
+const STUDY_ACTIVITIES = {
+  active: ["Problem solving", "PYQ practice", "Mock test", "Recall practice"],
+  passive: [
+    "Video lecture",
+    "Notes reading",
+    "Formula revision",
+    "Concept review",
+  ],
 };
+
+const FOCUS_PRESETS = [15, 25, 45, 60, 90];
 
 function getDayKey(value = new Date()) {
   const date = value instanceof Date ? value : new Date(value);
@@ -283,6 +239,11 @@ export function StudentDashboard({
   const [testName, setTestName] = useState("");
   const [testScore, setTestScore] = useState("");
   const [savingTest, setSavingTest] = useState(false);
+  const [focusDurationMinutes, setFocusDurationMinutes] = useState(25);
+  const [studySubject, setStudySubject] = useState("Physics");
+  const [studyActivity, setStudyActivity] = useState("Problem solving");
+  const [studyTopic, setStudyTopic] = useState("");
+  const [timerSessionStartedAt, setTimerSessionStartedAt] = useState(null);
 
   useEffect(() => {
     if (!timerRunning) return undefined;
@@ -303,54 +264,96 @@ export function StudentDashboard({
   const initial = studentName.charAt(0).toUpperCase() || "S";
 
   const startOrResumeTimer = () => {
-    setTimerNow(Date.now());
-    setTimerStartedAt(Date.now());
+    const now = Date.now();
+
+    setTimerNow(now);
+
+    // Establish the session start only once. Resuming must not
+    // overwrite the original start time.
+    if (!timerSessionStartedAt) {
+      setTimerSessionStartedAt(now);
+    }
+
+    setTimerStartedAt(now);
     setTimerRunning(true);
   };
+
   const pauseTimer = () => {
-    setTimerBaseSeconds(elapsedSeconds);
+    // Freeze elapsed time when pausing.
+    const now = Date.now();
+    const exactElapsed = timerStartedAt
+      ? timerBaseSeconds +
+        Math.max(0, Math.floor((now - timerStartedAt) / 1000))
+      : timerBaseSeconds;
+
+    setTimerBaseSeconds(exactElapsed);
+    setTimerNow(now);
     setTimerRunning(false);
     setTimerStartedAt(null);
   };
+
   const resetTimer = () => {
     if (!elapsedSeconds) return;
-    Alert.alert("Reset timer?", "Current unsaved session reset ho jayega.", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Reset",
-        style: "destructive",
-        onPress: () => {
-          setTimerRunning(false);
-          setTimerBaseSeconds(0);
-          setTimerStartedAt(null);
+
+    Alert.alert(
+      "Reset focus session?",
+      "The unsaved time for this session will be discarded.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Reset",
+          style: "destructive",
+          onPress: () => {
+            setTimerRunning(false);
+            setTimerBaseSeconds(0);
+            setTimerStartedAt(null);
+            setTimerSessionStartedAt(null);
+          },
         },
-      },
-    ]);
+      ],
+    );
   };
   const saveStudySession = async () => {
-    if (!user?.uid || elapsedSeconds < 1) return;
+    if (!user?.uid || elapsedSeconds < 1 || savingSession) return;
+
     setSavingSession(true);
+
     const endedAtMillis = Date.now();
-    const startedAtMillis = timerStartedAt
-      ? timerStartedAt - timerBaseSeconds * 1000
-      : endedAtMillis - elapsedSeconds * 1000;
+    const startedAtMillis =
+      timerSessionStartedAt || endedAtMillis - elapsedSeconds * 1000;
+
     try {
       await addDoc(collection(db, "users", user.uid, "studySessions"), {
+        // Existing fields — retain these for old reports.
         mode: timerMode,
         durationSeconds: elapsedSeconds,
         startedAtMillis,
         endedAtMillis,
         dayKey: getDayKey(endedAtMillis),
         createdAt: serverTimestamp(),
+
+        // New optional fields for richer reports.
+        subject: studySubject,
+        activity: studyActivity,
+        topic: studyTopic.trim(),
+        targetDurationMinutes: focusDurationMinutes,
       });
+
       setTimerRunning(false);
       setTimerBaseSeconds(0);
       setTimerStartedAt(null);
+      setTimerSessionStartedAt(null);
+      setStudyTopic("");
       setActiveTab("home");
+
+      Alert.alert(
+        "Session saved",
+        `${formatDuration(elapsedSeconds)} of ${timerMode} study saved successfully.`,
+      );
     } catch (saveError) {
       Alert.alert(
-        "Session save nahi hua",
-        errorMessage(saveError, "Please retry."),
+        "Session could not be saved",
+        errorMessage(saveError, "Please try again."),
       );
     } finally {
       setSavingSession(false);
@@ -362,10 +365,14 @@ export function StudentDashboard({
     try {
       await setDoc(
         doc(db, "users", user.uid, "syllabus", topic.id),
+
         {
           topicId: topic.id,
           subject: topic.subject,
           title: topic.title,
+          unitId: topic.unitId,
+          unitNumber: topic.unitNumber,
+          unitTitle: topic.unitTitle,
           done,
           updatedAtMillis: Date.now(),
           updatedAt: serverTimestamp(),
@@ -414,7 +421,7 @@ export function StudentDashboard({
   };
 
   const renderScreen = () => {
-    if (activeTab === "study")
+    if (activeTab === "study") {
       return (
         <StudyScreen
           elapsedSeconds={elapsedSeconds}
@@ -427,8 +434,17 @@ export function StudentDashboard({
           running={timerRunning}
           saving={savingSession}
           summary={summary}
+          focusDurationMinutes={focusDurationMinutes}
+          onChangeFocusDuration={setFocusDurationMinutes}
+          subject={studySubject}
+          onChangeSubject={setStudySubject}
+          activity={studyActivity}
+          onChangeActivity={setStudyActivity}
+          topic={studyTopic}
+          onChangeTopic={setStudyTopic}
         />
       );
+    }
     if (activeTab === "syllabus")
       return (
         <SyllabusScreen
@@ -659,46 +675,141 @@ export function StudyScreen({
   running,
   saving,
   summary,
+  focusDurationMinutes,
+  onChangeFocusDuration,
+  subject,
+  onChangeSubject,
+  activity,
+  onChangeActivity,
+  topic,
+  onChangeTopic,
 }) {
-  const lockMode = elapsedSeconds > 0;
+  const lockSession = elapsedSeconds > 0 || running;
+  const targetSeconds = focusDurationMinutes * 60;
+  const progress = Math.min(1, elapsedSeconds / targetSeconds);
+  const remainingSeconds = Math.max(0, targetSeconds - elapsedSeconds);
+  const targetReached = elapsedSeconds >= targetSeconds;
+  const activities = STUDY_ACTIVITIES[mode];
+
+  const handleModeChange = (nextMode) => {
+    if (lockSession || nextMode === mode) return;
+
+    onChangeMode(nextMode);
+    onChangeActivity(STUDY_ACTIVITIES[nextMode][0]);
+  };
+
   return (
     <>
       <ScreenIntro
         eyebrow="FOCUS LAB"
-        text="Active learning ya passive revision ka session track karein. Save hote hi report update ho jayegi."
-        title="Study with intent"
+        title="Make every minute count"
+        text="Choose your study goal, focus on one task, and save your session to track your progress."
       />
+
       <View style={styles.timerCard}>
         <View style={styles.timerCardHeader}>
-          <Text style={styles.timerCardLabel}>
-            {mode === "active" ? "ACTIVE LEARNING" : "PASSIVE REVISION"}
-          </Text>
+          <View>
+            <Text style={styles.timerCardLabel}>YOUR FOCUS SESSION</Text>
+            <Text style={styles.timerHeaderSub}>
+              {mode === "active" ? "Active learning" : "Passive revision"}
+            </Text>
+          </View>
+
           <View style={[styles.livePill, running && styles.livePillActive]}>
             <View style={[styles.liveDot, running && styles.liveDotActive]} />
             <Text style={styles.livePillText}>
-              {running ? "RUNNING" : "READY"}
+              {running ? "FOCUSING" : targetReached ? "GOAL REACHED" : "READY"}
             </Text>
           </View>
         </View>
-        <Text style={styles.timerValue}>{formatTimer(elapsedSeconds)}</Text>
-        <Text style={styles.timerHelper}>
-          {running
-            ? "Timer is accurately counting the current session."
-            : "Start when you are ready to focus."}
-        </Text>
+
+        <View style={styles.focusRingWrap}>
+          <View style={styles.focusRing}>
+            <View style={styles.focusRingInner}>
+              <Text style={styles.timerValue}>
+                {formatTimer(elapsedSeconds)}
+              </Text>
+              <Text style={styles.focusRingCaption}>ELAPSED</Text>
+              <View style={styles.focusRingDivider} />
+              <Text style={styles.focusRemaining}>
+                {targetReached
+                  ? "Goal completed"
+                  : `${formatTimer(remainingSeconds)} left`}
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.goalProgressTrack}>
+          <View
+            style={[
+              styles.goalProgressFill,
+              { width: `${Math.round(progress * 100)}%` },
+              targetReached && styles.goalProgressComplete,
+            ]}
+          />
+        </View>
+
+        <View style={styles.goalLabels}>
+          <Text style={styles.goalLabel}>FOCUS GOAL</Text>
+          <Text style={styles.goalPercent}>{Math.round(progress * 100)}%</Text>
+        </View>
+
+        <Text style={styles.inputLabel}>SESSION LENGTH</Text>
+        <View style={styles.presetRow}>
+          {FOCUS_PRESETS.map((minutes) => {
+            const selected = focusDurationMinutes === minutes;
+
+            return (
+              <TouchableOpacity
+                key={minutes}
+                disabled={lockSession || saving}
+                onPress={() => onChangeFocusDuration(minutes)}
+                style={[
+                  styles.presetButton,
+                  selected && styles.presetButtonSelected,
+                  lockSession && !selected && styles.presetButtonDisabled,
+                ]}
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+              >
+                <Text
+                  style={[
+                    styles.presetText,
+                    selected && styles.presetTextSelected,
+                  ]}
+                >
+                  {minutes}
+                </Text>
+                <Text
+                  style={[
+                    styles.presetUnit,
+                    selected && styles.presetTextSelected,
+                  ]}
+                >
+                  min
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        <Text style={styles.inputLabel}>STUDY MODE</Text>
         <View style={styles.modeToggle}>
           {["active", "passive"].map((item) => {
             const selected = mode === item;
+
             return (
               <TouchableOpacity
-                disabled={lockMode}
                 key={item}
-                onPress={() => onChangeMode(item)}
+                disabled={lockSession || saving}
+                onPress={() => handleModeChange(item)}
                 style={[
                   styles.modeOption,
                   selected && styles.modeOptionSelected,
-                  lockMode && !selected && styles.modeOptionLocked,
                 ]}
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
               >
                 <Text
                   style={[
@@ -706,75 +817,192 @@ export function StudyScreen({
                     selected && styles.modeOptionTextSelected,
                   ]}
                 >
-                  {item === "active" ? "Active" : "Passive"}
+                  {item === "active" ? "⚡ Active study" : "📖 Passive study"}
                 </Text>
               </TouchableOpacity>
             );
           })}
         </View>
-        {lockMode && (
+
+        <Text style={styles.inputLabel}>SUBJECT</Text>
+        <View style={styles.selectionRow}>
+          {SUBJECT_ORDER.map((item) => {
+            const selected = subject === item;
+
+            return (
+              <TouchableOpacity
+                key={item}
+                disabled={lockSession || saving}
+                onPress={() => onChangeSubject(item)}
+                style={[
+                  styles.subjectSelectButton,
+                  selected && {
+                    borderColor: SUBJECT_ACCENTS[item],
+                    backgroundColor: `${SUBJECT_ACCENTS[item]}20`,
+                  },
+                ]}
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+              >
+                <View
+                  style={[
+                    styles.subjectSelectDot,
+                    { backgroundColor: SUBJECT_ACCENTS[item] },
+                  ]}
+                />
+                <Text
+                  style={[
+                    styles.subjectSelectText,
+                    selected && styles.subjectSelectTextSelected,
+                  ]}
+                >
+                  {item === "Mathematics" ? "Maths" : item}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        <Text style={styles.inputLabel}>WHAT ARE YOU WORKING ON?</Text>
+        <View style={styles.activityGrid}>
+          {activities.map((item) => {
+            const selected = activity === item;
+
+            return (
+              <TouchableOpacity
+                key={item}
+                disabled={lockSession || saving}
+                onPress={() => onChangeActivity(item)}
+                style={[
+                  styles.activityOption,
+                  selected && styles.activityOptionSelected,
+                ]}
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+              >
+                <Text
+                  style={[
+                    styles.activityOptionText,
+                    selected && styles.activityOptionTextSelected,
+                  ]}
+                >
+                  {selected ? "✓  " : ""}
+                  {item}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        <Text style={styles.inputLabel}>TOPIC (OPTIONAL)</Text>
+        <TextInput
+          value={topic}
+          onChangeText={onChangeTopic}
+          editable={!lockSession && !saving}
+          placeholder="e.g. Laws of motion"
+          placeholderTextColor="#64748b"
+          maxLength={120}
+          style={styles.topicInput}
+          returnKeyType="done"
+          accessibilityLabel="Study topic"
+        />
+
+        {lockSession && (
           <Text style={styles.timerModeHint}>
-            Mode is locked until you save or reset this session.
+            Session settings are locked while a session is in progress. Save or
+            reset to start a different session.
           </Text>
         )}
+
+        {targetReached && (
+          <View style={styles.goalReachedBox}>
+            <Text style={styles.goalReachedTitle}>🎯 Focus goal reached</Text>
+            <Text style={styles.goalReachedCopy}>
+              Great work! You can keep studying, pause, or save this session.
+            </Text>
+          </View>
+        )}
+
         <View style={styles.timerActions}>
           <TouchableOpacity
+            accessibilityRole="button"
+            disabled={saving}
             onPress={running ? onPause : onStart}
-            style={styles.timerMainButton}
+            style={[styles.timerMainButton, saving && styles.buttonDisabled]}
           >
             <Text style={styles.timerMainButtonText}>
               {running
-                ? "Pause session"
+                ? "Ⅱ   Pause session"
                 : elapsedSeconds > 0
-                  ? "Resume session"
-                  : "Start focus"}
+                  ? "▶   Resume focus"
+                  : "▶   Start focus"}
             </Text>
           </TouchableOpacity>
+
           <TouchableOpacity
+            accessibilityRole="button"
             disabled={elapsedSeconds === 0 || saving}
             onPress={onReset}
             style={[
               styles.timerIconButton,
-              elapsedSeconds === 0 && styles.buttonDisabled,
+              (elapsedSeconds === 0 || saving) && styles.buttonDisabled,
             ]}
           >
             <Text style={styles.timerIconButtonText}>↺</Text>
           </TouchableOpacity>
         </View>
+
         <TouchableOpacity
-          disabled={elapsedSeconds === 0 || saving}
+          accessibilityRole="button"
+          disabled={elapsedSeconds < 1 || saving}
           onPress={onSave}
           style={[
             styles.saveSessionButton,
-            (elapsedSeconds === 0 || saving) && styles.buttonDisabled,
+            (elapsedSeconds < 1 || saving) && styles.buttonDisabled,
           ]}
         >
           {saving ? (
             <ActivityIndicator color="#bfdbfe" />
           ) : (
             <Text style={styles.saveSessionButtonText}>
-              Save session to dashboard
+              Save study session →
             </Text>
           )}
         </TouchableOpacity>
       </View>
+
+      <Text style={styles.sectionHeading}>Your study insights</Text>
+
       <View style={styles.twoColumnRow}>
+        <MiniInsight
+          label="Today"
+          value={formatDuration(summary.todaySeconds)}
+        />
         <MiniInsight
           label="This week"
           value={formatDuration(summary.weekSeconds)}
         />
+      </View>
+
+      <View style={styles.twoColumnRow}>
         <MiniInsight
-          label="Active focus"
+          label="Active learning"
           value={formatDuration(summary.activeSeconds)}
         />
+        <MiniInsight
+          label="Passive revision"
+          value={formatDuration(summary.passiveSeconds)}
+        />
       </View>
+
       <View style={styles.studyTipCard}>
         <Text style={styles.studyTipIcon}>✦</Text>
         <View style={styles.flex}>
-          <Text style={styles.studyTipTitle}>How to use modes</Text>
+          <Text style={styles.studyTipTitle}>Study smart, not just long</Text>
           <Text style={styles.studyTipText}>
-            Active = questions, recall and problem solving. Passive = lecture,
-            notes or revision.
+            Active: solve questions, attempt PYQs and practise recall. Passive:
+            understand concepts, read notes and revise formulas. Both count
+            towards your study time.
           </Text>
         </View>
       </View>
@@ -783,17 +1011,59 @@ export function StudyScreen({
 }
 
 export function SyllabusScreen({ onToggleTopic, syllabusState, summary }) {
+  const [expandedUnits, setExpandedUnits] = useState({});
+
+  const toggleUnitExpansion = (unitId) => {
+    setExpandedUnits((current) => ({
+      ...current,
+      [unitId]: !current[unitId],
+    }));
+  };
+
   return (
     <>
       <ScreenIntro
-        eyebrow="SYLLABUS MAP"
-        text="Checklist is private to your signed-in UID and syncs across your own sessions."
-        title="One topic at a time"
+        eyebrow="JEE MAIN SYLLABUS"
+        title="Complete the syllabus"
+        text="Subject-wise units and topic checklists. Tap a unit to expand its topics and tick off your progress."
       />
+
+      <View style={styles.syllabusNotice}>
+        <Text style={styles.syllabusNoticeTitle}>Syllabus reference</Text>
+        <Text style={styles.syllabusNoticeText}>
+          Based on the syllabus document you provided, which references the 2026
+          syllabus for 2027 preparation. Check the official NTA site for any
+          2027 update.
+        </Text>
+        <Text
+          accessibilityRole="link"
+          onPress={() =>
+            Alert.alert(
+              "Official NTA syllabus",
+              "Open the official JEE Main syllabus page in your browser:\nhttps://jeemain.nta.nic.in/document/syllabus-2026/",
+              [
+                { text: "OK" },
+                {
+                  text: "Copy link",
+                  onPress: () =>
+                    Alert.alert(
+                      "Official syllabus URL",
+                      "https://jeemain.nta.nic.in/document/syllabus-2026/",
+                    ),
+                },
+              ],
+            )
+          }
+          style={styles.syllabusNoticeLink}
+        >
+          NTA syllabus reference ↗
+        </Text>
+      </View>
+
       <View style={styles.progressCard}>
         <View style={styles.progressHeader}>
           <View>
-            <Text style={styles.progressLabel}>OVERALL COMPLETION</Text>
+            <Text style={styles.progressLabel}>TOPICS COMPLETED</Text>
             <Text style={styles.progressValue}>
               {summary.completedTopics}{" "}
               <Text style={styles.progressValueMuted}>
@@ -803,6 +1073,7 @@ export function SyllabusScreen({ onToggleTopic, syllabusState, summary }) {
           </View>
           <Text style={styles.progressPercent}>{summary.syllabusPercent}%</Text>
         </View>
+
         <View style={styles.progressTrack}>
           <View
             style={[
@@ -812,13 +1083,24 @@ export function SyllabusScreen({ onToggleTopic, syllabusState, summary }) {
           />
         </View>
       </View>
+
       {SUBJECT_ORDER.map((subject) => {
-        const topics = SYLLABUS_TOPICS.filter(
+        const units = JEE_MAIN_SYLLABUS_UNITS.filter(
+          (unit) => unit.subject === subject,
+        );
+
+        const subjectTopics = SYLLABUS_TOPICS.filter(
           (topic) => topic.subject === subject,
         );
-        const doneCount = topics.filter(
-          (topic) => syllabusState[topic.id]?.done,
+
+        const completedCount = subjectTopics.filter((topic) =>
+          Boolean(syllabusState[topic.id]?.done),
         ).length;
+
+        const subjectPercent = subjectTopics.length
+          ? Math.round((completedCount / subjectTopics.length) * 100)
+          : 0;
+
         return (
           <View key={subject} style={styles.subjectCard}>
             <View style={styles.subjectHeader}>
@@ -832,28 +1114,108 @@ export function SyllabusScreen({ onToggleTopic, syllabusState, summary }) {
                 <Text style={styles.subjectName}>{subject}</Text>
               </View>
               <Text style={styles.subjectCount}>
-                {doneCount}/{topics.length}
+                {completedCount}/{subjectTopics.length}
               </Text>
             </View>
-            {topics.map((topic) => {
-              const done = Boolean(syllabusState[topic.id]?.done);
+
+            <View style={styles.subjectProgressTrack}>
+              <View
+                style={[
+                  styles.subjectProgressFill,
+                  {
+                    width: `${subjectPercent}%`,
+                    backgroundColor: SUBJECT_ACCENTS[subject],
+                  },
+                ]}
+              />
+            </View>
+
+            {units.map((unit) => {
+              const topics = SYLLABUS_TOPICS.filter(
+                (topic) => topic.unitId === unit.id,
+              );
+
+              const unitDone = topics.filter((topic) =>
+                Boolean(syllabusState[topic.id]?.done),
+              ).length;
+
+              const expanded = Boolean(expandedUnits[unit.id]);
+
               return (
-                <TouchableOpacity
-                  accessibilityRole="checkbox"
-                  accessibilityState={{ checked: done }}
-                  key={topic.id}
-                  onPress={() => onToggleTopic(topic)}
-                  style={styles.topicRow}
-                >
-                  <View style={[styles.checkbox, done && styles.checkboxDone]}>
-                    {done ? <Text style={styles.checkboxTick}>✓</Text> : null}
-                  </View>
-                  <Text
-                    style={[styles.topicTitle, done && styles.topicTitleDone]}
+                <View key={unit.id} style={styles.syllabusUnit}>
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityState={{ expanded }}
+                    onPress={() => toggleUnitExpansion(unit.id)}
+                    style={styles.syllabusUnitHeader}
                   >
-                    {topic.title}
-                  </Text>
-                </TouchableOpacity>
+                    <View style={styles.syllabusUnitText}>
+                      <Text style={styles.syllabusUnitEyebrow}>
+                        UNIT {String(unit.unit).padStart(2, "0")}
+                      </Text>
+                      <Text style={styles.syllabusUnitTitle}>{unit.title}</Text>
+                      <Text style={styles.syllabusUnitMeta}>
+                        {unitDone}/{topics.length} topics complete
+                      </Text>
+                    </View>
+
+                    <View style={styles.syllabusUnitRight}>
+                      {unitDone === topics.length && (
+                        <Text style={styles.syllabusUnitComplete}>✓</Text>
+                      )}
+                      <Text style={styles.syllabusUnitChevron}>
+                        {expanded ? "−" : "+"}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+
+                  {expanded && (
+                    <View style={styles.subtopicList}>
+                      {topics.map((topic, index) => {
+                        const done = Boolean(syllabusState[topic.id]?.done);
+
+                        return (
+                          <TouchableOpacity
+                            key={topic.id}
+                            accessibilityRole="checkbox"
+                            accessibilityState={{ checked: done }}
+                            onPress={() => onToggleTopic(topic)}
+                            style={styles.subtopicRow}
+                          >
+                            <View
+                              style={[
+                                styles.checkbox,
+                                done && styles.checkboxDone,
+                              ]}
+                            >
+                              {done && (
+                                <Text style={styles.checkboxTick}>✓</Text>
+                              )}
+                            </View>
+
+                            <Text
+                              style={[
+                                styles.subtopicIndex,
+                                done && styles.topicTitleDone,
+                              ]}
+                            >
+                              {String(index + 1).padStart(2, "0")}
+                            </Text>
+
+                            <Text
+                              style={[
+                                styles.subtopicTitle,
+                                done && styles.topicTitleDone,
+                              ]}
+                            >
+                              {topic.title}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  )}
+                </View>
               );
             })}
           </View>
@@ -1834,12 +2196,11 @@ const styles = StyleSheet.create({
     letterSpacing: 0.6,
   },
   timerValue: {
-    color: "#fff",
-    fontSize: 44,
+    color: "#ffffff",
+    fontSize: 36,
     fontVariant: ["tabular-nums"],
     fontWeight: "900",
-    letterSpacing: -1.7,
-    marginTop: 26,
+    letterSpacing: -1.4,
     textAlign: "center",
   },
   timerHelper: {
@@ -1933,6 +2294,218 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   studyTipText: { color: "#94c7c1", fontSize: 11, lineHeight: 17 },
+  timerHeaderSub: {
+    color: "#dbeafe",
+    fontSize: 13,
+    fontWeight: "800",
+    marginTop: 5,
+  },
+  focusRingWrap: {
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 20,
+    marginBottom: 16,
+  },
+  focusRing: {
+    width: 226,
+    height: 226,
+    borderRadius: 113,
+    borderWidth: 10,
+    borderColor: "#484a91",
+    backgroundColor: "#10172c",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#6366f1",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.22,
+    shadowRadius: 18,
+    elevation: 4,
+  },
+  focusRingInner: {
+    alignItems: "center",
+    justifyContent: "center",
+    width: "100%",
+    paddingHorizontal: 8,
+  },
+  focusRingCaption: {
+    color: "#9ca9c2",
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 1.8,
+    marginTop: 2,
+  },
+  focusRingDivider: {
+    width: 50,
+    height: 1,
+    backgroundColor: "#354361",
+    marginVertical: 12,
+  },
+  focusRemaining: {
+    color: "#c7d2fe",
+    fontSize: 12,
+    fontWeight: "800",
+    fontVariant: ["tabular-nums"],
+  },
+  goalProgressTrack: {
+    height: 7,
+    width: "100%",
+    backgroundColor: "#29334d",
+    borderRadius: 8,
+    overflow: "hidden",
+  },
+  goalProgressFill: {
+    height: "100%",
+    backgroundColor: "#a5b4fc",
+    borderRadius: 8,
+  },
+  goalProgressComplete: {
+    backgroundColor: "#2dd4bf",
+  },
+  goalLabels: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 8,
+    marginBottom: 20,
+  },
+  goalLabel: {
+    color: "#8290aa",
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 1,
+  },
+  goalPercent: {
+    color: "#e0e7ff",
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  presetRow: {
+    flexDirection: "row",
+    gap: 6,
+    marginBottom: 18,
+  },
+  presetButton: {
+    minWidth: 0,
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 10,
+    borderRadius: 11,
+    borderWidth: 1,
+    borderColor: "#303d59",
+    backgroundColor: "#0c1324",
+  },
+  presetButtonSelected: {
+    backgroundColor: "#3730a3",
+    borderColor: "#818cf8",
+  },
+  presetButtonDisabled: {
+    opacity: 0.55,
+  },
+  presetText: {
+    color: "#e2e8f0",
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  presetUnit: {
+    color: "#8290aa",
+    fontSize: 9,
+    fontWeight: "700",
+    marginTop: 2,
+  },
+  selectionRow: {
+    flexDirection: "row",
+    gap: 7,
+    marginBottom: 17,
+  },
+  subjectSelectButton: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 5,
+    paddingVertical: 12,
+    borderRadius: 11,
+    borderWidth: 1,
+    borderColor: "#303d59",
+    backgroundColor: "#0c1324",
+  },
+  subjectSelectDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    marginRight: 5,
+  },
+  subjectSelectText: {
+    color: "#aab6ca",
+    fontSize: 10,
+    fontWeight: "800",
+  },
+  subjectSelectTextSelected: {
+    color: "#ffffff",
+  },
+  activityGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 15,
+  },
+  activityOption: {
+    width: "48%",
+    flexGrow: 1,
+    alignItems: "flex-start",
+    justifyContent: "center",
+    minHeight: 44,
+    paddingHorizontal: 11,
+    paddingVertical: 10,
+    borderRadius: 11,
+    borderWidth: 1,
+    borderColor: "#303d59",
+    backgroundColor: "#0c1324",
+  },
+  activityOptionSelected: {
+    backgroundColor: "#29265f",
+    borderColor: "#818cf8",
+  },
+  activityOptionText: {
+    color: "#9aa8bd",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  activityOptionTextSelected: {
+    color: "#e0e7ff",
+  },
+  topicInput: {
+    backgroundColor: "#0b1425",
+    borderColor: "#303d59",
+    borderRadius: 12,
+    borderWidth: 1,
+    color: "#f8fafc",
+    fontSize: 13,
+    paddingHorizontal: 13,
+    paddingVertical: 12,
+    marginBottom: 5,
+  },
+  goalReachedBox: {
+    backgroundColor: "#10352e",
+    borderColor: "#216e5a",
+    borderWidth: 1,
+    borderRadius: 13,
+    padding: 13,
+    marginTop: 16,
+  },
+  goalReachedTitle: {
+    color: "#a7f3d0",
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  goalReachedCopy: {
+    color: "#b7ded5",
+    fontSize: 11,
+    lineHeight: 17,
+    marginTop: 5,
+  },
   progressCard: {
     backgroundColor: "#111a2e",
     borderColor: "#24324c",
@@ -2277,5 +2850,120 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
     textAlign: "center",
+  },
+  syllabusNotice: {
+    backgroundColor: "#11263a",
+    borderColor: "#25445f",
+    borderWidth: 1,
+    borderRadius: 15,
+    padding: 14,
+    marginBottom: 17,
+  },
+  syllabusNoticeTitle: {
+    color: "#bae6fd",
+    fontSize: 12,
+    fontWeight: "900",
+    marginBottom: 6,
+  },
+  syllabusNoticeText: {
+    color: "#b6c7da",
+    fontSize: 11,
+    lineHeight: 17,
+  },
+  syllabusNoticeLink: {
+    color: "#a5b4fc",
+    fontSize: 11,
+    fontWeight: "900",
+    marginTop: 9,
+  },
+  subjectProgressTrack: {
+    height: 4,
+    backgroundColor: "#24324c",
+    marginHorizontal: 15,
+    marginTop: 12,
+    marginBottom: 8,
+    borderRadius: 5,
+    overflow: "hidden",
+  },
+  subjectProgressFill: {
+    height: "100%",
+    borderRadius: 5,
+  },
+  syllabusUnit: {
+    borderTopWidth: 1,
+    borderTopColor: "#22314b",
+  },
+  syllabusUnitHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    minHeight: 72,
+  },
+  syllabusUnitText: {
+    flex: 1,
+    paddingRight: 9,
+  },
+  syllabusUnitEyebrow: {
+    color: "#8f9fba",
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 1,
+    marginBottom: 4,
+  },
+  syllabusUnitTitle: {
+    color: "#e8edf7",
+    fontSize: 12,
+    fontWeight: "800",
+    lineHeight: 17,
+  },
+  syllabusUnitMeta: {
+    color: "#8493ad",
+    fontSize: 10,
+    marginTop: 5,
+  },
+  syllabusUnitRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+  },
+  syllabusUnitComplete: {
+    color: "#5eead4",
+    fontSize: 16,
+    fontWeight: "900",
+  },
+  syllabusUnitChevron: {
+    color: "#c7d2fe",
+    fontSize: 22,
+    fontWeight: "700",
+    width: 22,
+    textAlign: "center",
+  },
+  subtopicList: {
+    backgroundColor: "#0b1322",
+    paddingLeft: 13,
+    paddingRight: 12,
+    paddingBottom: 5,
+  },
+  subtopicRow: {
+    minHeight: 46,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 9,
+    borderTopWidth: 1,
+    borderTopColor: "#1d2a40",
+  },
+  subtopicIndex: {
+    color: "#71809a",
+    fontSize: 9,
+    fontWeight: "800",
+    width: 25,
+    marginLeft: 9,
+  },
+  subtopicTitle: {
+    color: "#cbd5e1",
+    fontSize: 11,
+    lineHeight: 16,
+    flex: 1,
   },
 });
