@@ -13,6 +13,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import Svg, { Circle, Line, Path, Text as SvgText } from "react-native-svg";
 import {
   JEE_MAIN_SYLLABUS_UNITS,
   JEE_MAIN_SUBJECT_ORDER,
@@ -1338,58 +1339,317 @@ export function TestsScreen({
   );
 }
 
+
+function AnalyticsLineChart({ title, subtitle, data, color, formatValue }) {
+  const width = 320;
+  const height = 178;
+  const left = 34;
+  const right = 308;
+  const top = 14;
+  const bottom = 140;
+  const plotWidth = right - left;
+  const plotHeight = bottom - top;
+  const safeData = Array.isArray(data) ? data : [];
+  const maxValue = Math.max(1, ...safeData.map((point) => Number(point.value) || 0));
+  const yMax = maxValue <= 4
+    ? Math.max(1, Math.ceil(maxValue * 2) / 2)
+    : Math.min(100, Math.ceil(maxValue / 20) * 20);
+  const points = safeData.map((point, index) => {
+    const value = Math.max(0, Number(point.value) || 0);
+    return {
+      ...point,
+      value,
+      x: left + (safeData.length <= 1 ? plotWidth / 2 : (index * plotWidth) / (safeData.length - 1)),
+      y: bottom - (value / yMax) * plotHeight,
+    };
+  });
+  const linePath = points
+    .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`)
+    .join(" ");
+  const areaPath = points.length
+    ? `${linePath} L ${points[points.length - 1].x} ${bottom} L ${points[0].x} ${bottom} Z`
+    : "";
+
+  return (
+    <View style={styles.analyticsChartCard}>
+      <Text style={styles.analyticsChartTitle}>{title}</Text>
+      <Text style={styles.analyticsChartSubtitle}>{subtitle}</Text>
+      {points.length ? (
+        <>
+          <Svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`}>
+            {[0, 1, 2, 3, 4].map((tick) => {
+              const fraction = tick / 4;
+              const y = bottom - fraction * plotHeight;
+              return (
+                <React.Fragment key={tick}>
+                  <Line
+                    x1={left}
+                    y1={y}
+                    x2={right}
+                    y2={y}
+                    stroke="#26344e"
+                    strokeWidth={1}
+                    strokeDasharray={tick === 0 ? undefined : "3 4"}
+                  />
+                  <SvgText
+                    x={left - 7}
+                    y={y + 3}
+                    fill="#8290aa"
+                    fontSize={8}
+                    textAnchor="end"
+                  >
+                    {formatValue ? formatValue((fraction * yMax) / 1) : String(Math.round(fraction * yMax))}
+                  </SvgText>
+                </React.Fragment>
+              );
+            })}
+            {areaPath ? <Path d={areaPath} fill={color} opacity={0.14} /> : null}
+            {linePath ? (
+              <Path
+                d={linePath}
+                fill="none"
+                stroke={color}
+                strokeWidth={3}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            ) : null}
+            {points.map((point, index) => (
+              <React.Fragment key={`${point.label}-${index}`}>
+                <Circle
+                  cx={point.x}
+                  cy={point.y}
+                  r={4}
+                  fill="#111a2e"
+                  stroke={color}
+                  strokeWidth={2}
+                />
+                <SvgText
+                  x={point.x}
+                  y={bottom + 19}
+                  fill="#8290aa"
+                  fontSize={9}
+                  textAnchor="middle"
+                >
+                  {String(point.label).slice(0, 3)}
+                </SvgText>
+              </React.Fragment>
+            ))}
+          </Svg>
+          <View style={styles.analyticsChartFoot}>
+            <View style={[styles.analyticsChartLegendDot, { backgroundColor: color }]} />
+            <Text style={styles.analyticsChartLegendText}>
+              Latest: {formatValue ? formatValue(points[points.length - 1].value) : points[points.length - 1].value}
+            </Text>
+          </View>
+        </>
+      ) : (
+        <EmptyState icon="↗" text="Data save hone ke baad line graph yahan dikhega." />
+      )}
+    </View>
+  );
+}
+
+function DonutPieChart({ title, subtitle, data, emptyText }) {
+  const size = 150;
+  const center = size / 2;
+  const radius = 48;
+  const strokeWidth = 22;
+  const circumference = 2 * Math.PI * radius;
+  const visibleData = (Array.isArray(data) ? data : []).filter(
+    (item) => Number(item.value) > 0,
+  );
+  const total = visibleData.reduce((sum, item) => sum + Number(item.value || 0), 0);
+  let accumulatedFraction = 0;
+  const segments = visibleData.map((item) => {
+    const fraction = total ? Number(item.value || 0) / total : 0;
+    const segment = {
+      ...item,
+      fraction,
+      dashLength: circumference * fraction,
+      dashOffset: -circumference * accumulatedFraction,
+      percent: total ? Math.round(fraction * 100) : 0,
+    };
+    accumulatedFraction += fraction;
+    return segment;
+  });
+
+  return (
+    <View style={styles.analyticsChartCard}>
+      <Text style={styles.analyticsChartTitle}>{title}</Text>
+      <Text style={styles.analyticsChartSubtitle}>{subtitle}</Text>
+      {total > 0 ? (
+        <View style={styles.donutLayout}>
+          <View style={styles.donutChartWrap}>
+            <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+              <Circle
+                cx={center}
+                cy={center}
+                r={radius}
+                fill="none"
+                stroke="#26344e"
+                strokeWidth={strokeWidth}
+              />
+              {segments.map((segment) => (
+                <Circle
+                  key={segment.label}
+                  cx={center}
+                  cy={center}
+                  r={radius}
+                  fill="none"
+                  stroke={segment.color}
+                  strokeWidth={strokeWidth}
+                  strokeDasharray={`${segment.dashLength} ${Math.max(0, circumference - segment.dashLength)}`}
+                  strokeDashoffset={segment.dashOffset}
+                  strokeLinecap="butt"
+                  rotation={-90}
+                  originX={center}
+                  originY={center}
+                />
+              ))}
+              <SvgText
+                x={center}
+                y={center - 2}
+                textAnchor="middle"
+                fill="#f8fafc"
+                fontSize={12}
+                fontWeight="700"
+              >
+                {formatCompactHours(total)}
+              </SvgText>
+              <SvgText
+                x={center}
+                y={center + 13}
+                textAnchor="middle"
+                fill="#8290aa"
+                fontSize={8}
+              >
+                TOTAL TIME
+              </SvgText>
+            </Svg>
+          </View>
+          <View style={styles.donutLegend}>
+            {segments.map((segment) => (
+              <View key={segment.label} style={styles.donutLegendRow}>
+                <View style={[styles.donutLegendDot, { backgroundColor: segment.color }]} />
+                <View style={styles.donutLegendCopy}>
+                  <Text numberOfLines={2} style={styles.donutLegendLabel}>{segment.label}</Text>
+                  <Text style={styles.donutLegendDuration}>{formatDuration(segment.value)}</Text>
+                </View>
+                <Text style={styles.donutLegendPercent}>{segment.percent}%</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      ) : (
+        <EmptyState icon="◷" text={emptyText} />
+      )}
+    </View>
+  );
+}
+
 export function ReportsScreen({ summary, tests }) {
   const maxDaySeconds = Math.max(
     ...summary.weekDays.map((day) => day.seconds),
     1,
   );
-  const recentScores = tests.slice(0, 5).reverse();
+  const goalMinutes = summary.dailyGoalMinutes || 240;
+  const goalSeconds = goalMinutes * 60;
+  const goalPercent = Math.min(
+    100,
+    Math.round((summary.todaySeconds / Math.max(goalSeconds, 1)) * 100),
+  );
+  const subjectRows = (summary.subjectBreakdown || []).filter(
+    (row) => row.seconds > 0,
+  );
+  const activityRows = (summary.activityBreakdown || []).filter(
+    (row) => row.seconds > 0,
+  );
+  const maxSubjectSeconds = Math.max(1, ...subjectRows.map((row) => row.seconds));
+  const maxActivitySeconds = Math.max(1, ...activityRows.map((row) => row.seconds));
+  const recentScores = [...tests]
+    .sort((a, b) => Number(a.takenAtMillis || 0) - Number(b.takenAtMillis || 0))
+    .slice(-5);
+  const studyModePie = [
+    { label: "Active learning", value: summary.weekActiveSeconds || 0, color: "#8b5cf6" },
+    { label: "Passive revision", value: summary.weekPassiveSeconds || 0, color: "#14b8a6" },
+  ];
+  const subjectPie = subjectRows.map((row, index) => ({
+    label: row.subject,
+    value: row.seconds,
+    color: SUBJECT_ACCENTS[row.subject] || ["#818cf8", "#f59e0b", "#fb7185"][index % 3],
+  }));
+
   return (
     <>
       <ScreenIntro
         eyebrow="PROGRESS REPORT"
-        text="Study sessions aur saved test scores ka clear, personal snapshot."
-        title="See the signal"
+        title="Study analytics"
+        text="Understand your consistency, study balance and where your time is going."
       />
+
+      <View style={styles.goalCard}>
+        <View style={styles.goalCardHeader}>
+          <View style={styles.goalCardTitleWrap}>
+            <Text style={styles.goalCardEyebrow}>TODAY'S STUDY GOAL</Text>
+            <Text style={styles.goalCardTitle}>
+              {formatDuration(summary.todaySeconds)}{" "}
+              <Text style={styles.goalCardMuted}>/ {goalMinutes / 60}h</Text>
+            </Text>
+          </View>
+          <View style={styles.goalBadge}>
+            <Text style={styles.goalBadgeText}>{goalPercent}%</Text>
+          </View>
+        </View>
+        <View style={styles.goalTrack}>
+          <View
+            style={[
+              styles.goalFill,
+              { width: `${goalPercent}%` },
+              goalPercent >= 100 && styles.goalFillComplete,
+            ]}
+          />
+        </View>
+        <Text style={styles.goalFootnote}>
+          {goalPercent >= 100
+            ? "Daily goal reached. Great consistency!"
+            : `${formatDuration(Math.max(0, goalSeconds - summary.todaySeconds))} left to reach today's goal.`}
+        </Text>
+      </View>
+
       <View style={styles.reportMetricGrid}>
-        <ReportMetric
-          accent="#8b5cf6"
-          label="7-day study"
-          value={formatCompactHours(summary.weekSeconds)}
-        />
+        <ReportMetric accent="#8b5cf6" label="7-day study" value={formatCompactHours(summary.weekSeconds)} />
         <ReportMetric
           accent="#14b8a6"
           label="Test average"
-          value={
-            summary.testAverage === null
-              ? "—"
-              : `${Math.round(summary.testAverage)}%`
-          }
+          value={summary.testAverage === null ? "—" : `${Math.round(summary.testAverage)}%`}
         />
         <ReportMetric
           accent="#f59e0b"
           label="Best score"
-          value={
-            summary.bestScore === null
-              ? "—"
-              : `${Math.round(summary.bestScore)}%`
-          }
+          value={summary.bestScore === null ? "—" : `${Math.round(summary.bestScore)}%`}
         />
-        <ReportMetric
-          accent="#fb7185"
-          label="Sessions"
-          value={String(summary.totalSessions)}
-        />
+        <ReportMetric accent="#fb7185" label="Sessions" value={String(summary.totalSessions)} />
       </View>
+
+      <AnalyticsLineChart
+        title="Study time trend"
+        subtitle="Daily study hours · last 7 days"
+        data={summary.weekDays.map((day) => ({
+          label: day.label,
+          value: day.seconds / 3600,
+        }))}
+        color="#a5b4fc"
+        formatValue={(value) => `${Number(value).toFixed(1)}h`}
+      />
+
       <View style={styles.chartCard}>
         <View style={styles.chartHeader}>
           <View>
             <Text style={styles.chartTitle}>Study time</Text>
-            <Text style={styles.chartSubtext}>Last 7 days</Text>
+            <Text style={styles.chartSubtext}>Last 7 days · bar view</Text>
           </View>
-          <Text style={styles.chartTotal}>
-            {formatDuration(summary.weekSeconds)}
-          </Text>
+          <Text style={styles.chartTotal}>{formatDuration(summary.weekSeconds)}</Text>
         </View>
         <View style={styles.barChart}>
           {summary.weekDays.map((day) => (
@@ -1398,9 +1658,7 @@ export function ReportsScreen({ summary, tests }) {
                 <View
                   style={[
                     styles.barFill,
-                    {
-                      height: `${Math.max(7, Math.round((day.seconds / maxDaySeconds) * 100))}%`,
-                    },
+                    { height: `${Math.max(7, Math.round((day.seconds / maxDaySeconds) * 100))}%` },
                   ]}
                 />
               </View>
@@ -1409,21 +1667,120 @@ export function ReportsScreen({ summary, tests }) {
           ))}
         </View>
       </View>
+
+      <DonutPieChart
+        title="Study mode split"
+        subtitle="Active learning vs passive revision · last 7 days"
+        data={studyModePie}
+        emptyText="Save a study session this week to see the active/passive split."
+      />
+
+      <DonutPieChart
+        title="Subject time split"
+        subtitle="How your study time was distributed · last 7 days"
+        data={subjectPie}
+        emptyText="Save a session with a subject selected to see this chart."
+      />
+
       <View style={styles.reportSplitCard}>
         <View style={styles.reportSplitItem}>
-          <Text style={styles.reportSplitLabel}>ACTIVE</Text>
-          <Text style={styles.reportSplitValue}>
-            {formatDuration(summary.activeSeconds)}
+          <Text style={styles.reportSplitLabel}>ACTIVE LEARNING · ALL TIME</Text>
+          <Text style={styles.reportSplitValue}>{formatDuration(summary.activeSeconds)}</Text>
+          <Text style={styles.breakdownPercent}>
+            {summary.totalSeconds
+              ? Math.round((summary.activeSeconds / summary.totalSeconds) * 100)
+              : 0}% of tracked time
           </Text>
         </View>
         <View style={styles.reportDivider} />
         <View style={styles.reportSplitItem}>
-          <Text style={styles.reportSplitLabel}>PASSIVE</Text>
-          <Text style={styles.reportSplitValue}>
-            {formatDuration(summary.passiveSeconds)}
+          <Text style={styles.reportSplitLabel}>PASSIVE REVISION · ALL TIME</Text>
+          <Text style={styles.reportSplitValue}>{formatDuration(summary.passiveSeconds)}</Text>
+          <Text style={styles.breakdownPercent}>
+            {summary.totalSeconds
+              ? Math.round((summary.passiveSeconds / summary.totalSeconds) * 100)
+              : 0}% of tracked time
           </Text>
         </View>
       </View>
+
+      <Text style={styles.sectionHeading}>Time by subject · last 7 days</Text>
+      <View style={styles.breakdownCard}>
+        {subjectRows.length ? (
+          subjectRows.map((row) => (
+            <View key={row.subject} style={styles.breakdownRow}>
+              <View style={styles.breakdownTopline}>
+                <View style={styles.breakdownLabelWrap}>
+                  <View style={[styles.breakdownDot, { backgroundColor: SUBJECT_ACCENTS[row.subject] || "#818cf8" }]} />
+                  <Text style={styles.breakdownName}>{row.subject}</Text>
+                </View>
+                <Text style={styles.breakdownValue}>{formatDuration(row.seconds)}</Text>
+              </View>
+              <View style={styles.breakdownTrack}>
+                <View
+                  style={[
+                    styles.breakdownFill,
+                    {
+                      width: `${Math.round((row.seconds / maxSubjectSeconds) * 100)}%`,
+                      backgroundColor: SUBJECT_ACCENTS[row.subject] || "#818cf8",
+                    },
+                  ]}
+                />
+              </View>
+            </View>
+          ))
+        ) : (
+          <EmptyState
+            icon="◷"
+            text="New saved sessions with a subject selected will appear here. Older sessions still count in overall totals."
+          />
+        )}
+      </View>
+
+      <Text style={styles.sectionHeading}>Time by activity · last 7 days</Text>
+      <View style={styles.breakdownCard}>
+        {activityRows.length ? (
+          activityRows.slice(0, 8).map((row) => (
+            <View key={`${row.mode}::${row.activity}`} style={styles.breakdownRow}>
+              <View style={styles.breakdownTopline}>
+                <View style={styles.breakdownLabelWrap}>
+                  <View style={[styles.breakdownDot, { backgroundColor: row.mode === "active" ? "#8b5cf6" : "#14b8a6" }]} />
+                  <Text style={styles.breakdownName}>{row.activity}</Text>
+                </View>
+                <Text style={styles.breakdownValue}>{formatDuration(row.seconds)}</Text>
+              </View>
+              <View style={styles.breakdownTrack}>
+                <View
+                  style={[
+                    styles.breakdownFill,
+                    {
+                      width: `${Math.round((row.seconds / maxActivitySeconds) * 100)}%`,
+                      backgroundColor: row.mode === "active" ? "#8b5cf6" : "#14b8a6",
+                    },
+                  ]}
+                />
+              </View>
+            </View>
+          ))
+        ) : (
+          <EmptyState
+            icon="✦"
+            text="Select a study activity in the timer; new saved sessions will populate this chart."
+          />
+        )}
+      </View>
+
+      <AnalyticsLineChart
+        title="Test score trend"
+        subtitle="Latest 5 saved tests · percentage"
+        data={recentScores.map((test, index) => ({
+          label: `T${index + 1}`,
+          value: Math.max(0, Math.min(100, Number(test.scorePercent) || 0)),
+        }))}
+        color="#f59e0b"
+        formatValue={(value) => `${Math.round(value)}%`}
+      />
+
       <Text style={styles.sectionHeading}>Recent score trend</Text>
       <View style={styles.scoreTrendCard}>
         {recentScores.length ? (
@@ -1436,22 +1793,15 @@ export function ReportsScreen({ summary, tests }) {
                 <View
                   style={[
                     styles.scoreTrendFill,
-                    {
-                      width: `${Math.min(100, Math.max(0, Number(test.scorePercent) || 0))}%`,
-                    },
+                    { width: `${Math.min(100, Math.max(0, Number(test.scorePercent) || 0))}%` },
                   ]}
                 />
               </View>
-              <Text style={styles.scoreTrendValue}>
-                {Math.round(Number(test.scorePercent) || 0)}%
-              </Text>
+              <Text style={styles.scoreTrendValue}>{Math.round(Number(test.scorePercent) || 0)}%</Text>
             </View>
           ))
         ) : (
-          <EmptyState
-            icon="↗"
-            text="Score history save karne ke baad trend dikhega."
-          />
+          <EmptyState icon="↗" text="Score history save karne ke baad trend dikhega." />
         )}
       </View>
     </>
@@ -1589,86 +1939,152 @@ function buildSummary(studySessions, syllabusState, tests) {
   const sevenDaysAgo = new Date(now);
   sevenDaysAgo.setHours(0, 0, 0, 0);
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
+
   const sessions = [...studySessions].sort(
     (a, b) => sessionTimestamp(b) - sessionTimestamp(a),
   );
+
+  const durationOf = (session) =>
+    Math.max(0, Number(session.durationSeconds) || 0);
+
+  const sessionDayKey = (session) =>
+    session.dayKey || getDayKey(sessionTimestamp(session));
+
+  const todaySessions = sessions.filter(
+    (session) => sessionDayKey(session) === todayKey,
+  );
+
+  const weekSessions = sessions.filter(
+    (session) => sessionTimestamp(session) >= sevenDaysAgo.getTime(),
+  );
+
   const totalSeconds = sessions.reduce(
-    (total, session) => total + (Number(session.durationSeconds) || 0),
+    (total, session) => total + durationOf(session),
     0,
   );
-  const todaySeconds = sessions
-    .filter((session) => session.dayKey === todayKey)
-    .reduce(
-      (total, session) => total + (Number(session.durationSeconds) || 0),
-      0,
-    );
-  const weekSeconds = sessions
-    .filter((session) => sessionTimestamp(session) >= sevenDaysAgo.getTime())
-    .reduce(
-      (total, session) => total + (Number(session.durationSeconds) || 0),
-      0,
-    );
+
+  const todaySeconds = todaySessions.reduce(
+    (total, session) => total + durationOf(session),
+    0,
+  );
+
+  const weekSeconds = weekSessions.reduce(
+    (total, session) => total + durationOf(session),
+    0,
+  );
+
+  const weekActiveSeconds = weekSessions
+    .filter((session) => session.mode === "active")
+    .reduce((total, session) => total + durationOf(session), 0);
+
+  const weekPassiveSeconds = weekSessions
+    .filter((session) => session.mode === "passive")
+    .reduce((total, session) => total + durationOf(session), 0);
+
   const activeSeconds = sessions
     .filter((session) => session.mode === "active")
-    .reduce(
-      (total, session) => total + (Number(session.durationSeconds) || 0),
-      0,
-    );
+    .reduce((total, session) => total + durationOf(session), 0);
+
   const passiveSeconds = sessions
     .filter((session) => session.mode === "passive")
-    .reduce(
-      (total, session) => total + (Number(session.durationSeconds) || 0),
-      0,
-    );
+    .reduce((total, session) => total + durationOf(session), 0);
+
   const completedTopicIds = new Set(
     Object.entries(syllabusState)
       .filter(([, value]) => Boolean(value?.done))
       .map(([id]) => id),
   );
+
   const completedTopics = completedTopicIds.size;
+
   const numericScores = tests
     .map((test) => Number(test.scorePercent))
-    .filter((score) => !Number.isNaN(score));
+    .filter((score) => Number.isFinite(score));
+
   const testAverage = numericScores.length
     ? numericScores.reduce((total, score) => total + score, 0) /
       numericScores.length
     : null;
+
   const bestScore = numericScores.length ? Math.max(...numericScores) : null;
+
   const weekDays = Array.from({ length: 7 }, (_, index) => {
     const date = new Date(sevenDaysAgo);
     date.setDate(sevenDaysAgo.getDate() + index);
     const key = getDayKey(date);
+
     return {
       key,
-      label: date.toLocaleDateString(undefined, { weekday: "narrow" }),
-      seconds: sessions
-        .filter((session) => session.dayKey === key)
-        .reduce(
-          (total, session) => total + (Number(session.durationSeconds) || 0),
-          0,
-        ),
+      label: date.toLocaleDateString(undefined, {
+        weekday: "narrow",
+      }),
+      seconds: weekSessions
+        .filter((session) => sessionDayKey(session) === key)
+        .reduce((total, session) => total + durationOf(session), 0),
     };
   });
+
+  // New optional metadata only; older sessions remain included in totals.
+  const subjectTotals = {};
+  const activityTotals = {};
+
+  weekSessions.forEach((session) => {
+    const seconds = durationOf(session);
+    const subject = String(session.subject || "").trim();
+    const activity = String(session.activity || "").trim();
+
+    if (subject) {
+      subjectTotals[subject] = (subjectTotals[subject] || 0) + seconds;
+    }
+
+    if (activity) {
+      const key = `${session.mode || "unknown"}::${activity}`;
+
+      if (!activityTotals[key]) {
+        activityTotals[key] = {
+          activity,
+          mode: session.mode || "unknown",
+          seconds: 0,
+        };
+      }
+
+      activityTotals[key].seconds += seconds;
+    }
+  });
+
+  const subjectBreakdown = Object.entries(subjectTotals)
+    .map(([subject, seconds]) => ({ subject, seconds }))
+    .sort((a, b) => b.seconds - a.seconds);
+
+  const activityBreakdown = Object.values(activityTotals).sort(
+    (a, b) => b.seconds - a.seconds,
+  );
+
+  const recentTests = [...tests]
+    .sort((a, b) => Number(b.takenAtMillis || 0) - Number(a.takenAtMillis || 0))
+    .slice(0, 4);
+
   return {
     activeSeconds,
+    activityBreakdown,
     bestScore,
     completedTopicIds,
     completedTopics,
+    dailyGoalMinutes: 240,
     passiveSeconds,
     recentSessions: sessions.slice(0, 4),
-    recentTests: [...tests]
-      .sort(
-        (a, b) => Number(b.takenAtMillis || 0) - Number(a.takenAtMillis || 0),
-      )
-      .slice(0, 4),
+    recentTests,
+    subjectBreakdown,
     syllabusPercent: Math.round(
-      (completedTopics / SYLLABUS_TOPICS.length) * 100,
+      (completedTopics / Math.max(SYLLABUS_TOPICS.length, 1)) * 100,
     ),
     testAverage,
     todaySeconds,
     totalSeconds,
     totalSessions: sessions.length,
+    weekActiveSeconds,
     weekDays,
+    weekPassiveSeconds,
     weekSeconds,
   };
 }
@@ -2763,6 +3179,216 @@ const styles = StyleSheet.create({
     textAlign: "right",
     width: 34,
   },
+
+  goalCard: {
+    backgroundColor: "#151b35",
+    borderColor: "#3a3e77",
+    borderRadius: 18,
+    borderWidth: 1,
+    marginBottom: 13,
+    padding: 16,
+  },
+  goalCardHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 14,
+  },
+  goalCardTitleWrap: { flex: 1, paddingRight: 8 },
+  goalCardEyebrow: {
+    color: "#a5b4fc",
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 1,
+    marginBottom: 7,
+  },
+  goalCardTitle: {
+    color: "#f8fafc",
+    fontSize: 24,
+    fontWeight: "900",
+  },
+  goalCardMuted: {
+    color: "#8b9bb5",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  goalBadge: {
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#29265f",
+    borderColor: "#5a56a9",
+    borderWidth: 1,
+    borderRadius: 15,
+    minWidth: 58,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+  },
+  goalBadgeText: {
+    color: "#e0e7ff",
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  goalTrack: {
+    height: 9,
+    backgroundColor: "#27324b",
+    borderRadius: 8,
+    overflow: "hidden",
+  },
+  goalFill: {
+    height: "100%",
+    backgroundColor: "#818cf8",
+    borderRadius: 8,
+  },
+  goalFillComplete: {
+    backgroundColor: "#2dd4bf",
+  },
+  goalFootnote: {
+    color: "#9aa8bd",
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 9,
+  },
+  breakdownCard: {
+    backgroundColor: "#111a2e",
+    borderColor: "#24324c",
+    borderRadius: 17,
+    borderWidth: 1,
+    marginBottom: 17,
+    padding: 15,
+  },
+  breakdownRow: {
+    marginBottom: 15,
+  },
+  breakdownTopline: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+  breakdownLabelWrap: {
+    alignItems: "center",
+    flexDirection: "row",
+    flex: 1,
+    paddingRight: 8,
+  },
+  breakdownDot: {
+    height: 8,
+    width: 8,
+    borderRadius: 4,
+    marginRight: 8,
+  },
+  breakdownName: {
+    color: "#dbe4f2",
+    fontSize: 11,
+    fontWeight: "800",
+    flex: 1,
+  },
+  breakdownValue: {
+    color: "#f1f5f9",
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  breakdownTrack: {
+    height: 7,
+    backgroundColor: "#25334d",
+    borderRadius: 5,
+    overflow: "hidden",
+  },
+  breakdownFill: {
+    height: "100%",
+    borderRadius: 5,
+  },
+  breakdownPercent: {
+    color: "#7f8da6",
+    fontSize: 9,
+    marginTop: 5,
+  },
+
+  analyticsChartCard: {
+    backgroundColor: "#111a2e",
+    borderColor: "#24324c",
+    borderRadius: 18,
+    borderWidth: 1,
+    marginBottom: 15,
+    padding: 15,
+  },
+  analyticsChartTitle: {
+    color: "#f1f5f9",
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  analyticsChartSubtitle: {
+    color: "#8290aa",
+    fontSize: 10,
+    lineHeight: 15,
+    marginTop: 4,
+    marginBottom: 10,
+  },
+  analyticsChartFoot: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "center",
+    marginTop: 2,
+  },
+  analyticsChartLegendDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    marginRight: 7,
+  },
+  analyticsChartLegendText: {
+    color: "#aab7cb",
+    fontSize: 10,
+    fontWeight: "800",
+  },
+  donutLayout: {
+    alignItems: "center",
+    flexDirection: "row",
+  },
+  donutChartWrap: {
+    width: 150,
+    height: 150,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  donutLegend: {
+    flex: 1,
+    minWidth: 0,
+    paddingLeft: 8,
+  },
+  donutLegendRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    marginVertical: 7,
+  },
+  donutLegendDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 7,
+  },
+  donutLegendCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  donutLegendLabel: {
+    color: "#dbe4f2",
+    fontSize: 10,
+    fontWeight: "800",
+    lineHeight: 14,
+  },
+  donutLegendDuration: {
+    color: "#8290aa",
+    fontSize: 9,
+    marginTop: 2,
+  },
+  donutLegendPercent: {
+    color: "#e2e8f0",
+    fontSize: 10,
+    fontWeight: "900",
+    marginLeft: 5,
+  },
+
   profileCard: {
     alignItems: "center",
     backgroundColor: "#151b35",
