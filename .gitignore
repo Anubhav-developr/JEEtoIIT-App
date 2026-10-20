@@ -3,7 +3,6 @@ node_modules/
 dist/
 web-build/
 ios/
-google-services.json
 *.keystore
 *.jks
 .env

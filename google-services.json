@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "44795225864",
+    "project_id": "saumyajee-9c4dc",
+    "storage_bucket": "saumyajee-9c4dc.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:44795225864:android:dc427b0bb863a95b51eebd",
+        "android_client_info": {
+          "package_name": "com.saumyajee.portal"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "44795225864-clbl5nrp4qfduv4qmu7mik8m9pqta89v.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAgi4_rWtFemwmslPtAIkgufnQGs2xYzn8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "44795225864-clbl5nrp4qfduv4qmu7mik8m9pqta89v.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
