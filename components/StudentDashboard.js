@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
+  Image,
   Platform,
   SafeAreaView,
   ScrollView,
@@ -14,6 +15,9 @@ import {
   View,
 } from "react-native";
 import Svg, { Circle, Line, Path, Text as SvgText } from "react-native-svg";
+import * as ImagePicker from "expo-image-picker";
+import { updateProfile } from "@react-native-firebase/auth";
+import { deleteObject, getDownloadURL, getStorage, putFile, ref } from "@react-native-firebase/storage";
 import {
   JEE_MAIN_SYLLABUS_UNITS,
   JEE_MAIN_SUBJECT_ORDER,
@@ -229,6 +233,8 @@ export function StudentDashboard({
   user,
 }) {
   const [drawerVisible, setDrawerVisible] = useState(false);
+  const [profilePhotoURL, setProfilePhotoURL] = useState(user?.photoURL || "");
+  const [profilePhotoBusy, setProfilePhotoBusy] = useState(false);
   const [activeTab, setActiveTab] = useState("home");
   const [timerMode, setTimerMode] = useState("active");
   const [timerRunning, setTimerRunning] = useState(false);
@@ -263,6 +269,100 @@ export function StudentDashboard({
   );
   const studentName = user?.displayName?.trim().split(" ")[0] || "Saumya";
   const initial = studentName.charAt(0).toUpperCase() || "S";
+
+  useEffect(() => {
+    setProfilePhotoURL(user?.photoURL || "");
+  }, [user?.uid, user?.photoURL]);
+
+  const handleChooseProfilePhoto = async () => {
+    if (!user?.uid || profilePhotoBusy) return;
+    setProfilePhotoBusy(true);
+
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(
+          "Photo permission needed",
+          "DP upload karne ke liye photo library permission allow karein.",
+        );
+        return;
+      }
+
+      const selection = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.82,
+        exif: false,
+      });
+
+      if (selection.canceled || !selection.assets?.[0]?.uri) return;
+
+      const asset = selection.assets[0];
+      const avatarRef = ref(
+        getStorage(getApp()),
+        `users/${user.uid}/profile/avatar`,
+      );
+
+      await putFile(avatarRef, asset.uri, {
+        contentType: asset.mimeType || "image/jpeg",
+        cacheControl: "public,max-age=3600",
+      });
+
+      const downloadURL = await getDownloadURL(avatarRef);
+      await updateProfile(user, { photoURL: downloadURL });
+      setProfilePhotoURL(downloadURL);
+      Alert.alert("Profile photo updated", "Tumhari DP securely save ho gayi hai.");
+    } catch (uploadError) {
+      console.error("[Profile] photo upload failed", uploadError);
+      Alert.alert(
+        "Photo upload failed",
+        uploadError?.message ||
+          "Photo upload nahi ho saki. Firebase Storage enable karke dobara try karein.",
+      );
+    } finally {
+      setProfilePhotoBusy(false);
+    }
+  };
+
+  const handleRemoveProfilePhoto = () => {
+    if (!user?.uid || profilePhotoBusy || !profilePhotoURL) return;
+
+    Alert.alert("Remove profile photo?", "Tumhari DP remove ho jayegi.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Remove photo",
+        style: "destructive",
+        onPress: async () => {
+          setProfilePhotoBusy(true);
+          try {
+            const avatarRef = ref(
+              getStorage(getApp()),
+              `users/${user.uid}/profile/avatar`,
+            );
+            try {
+              await deleteObject(avatarRef);
+            } catch (storageError) {
+              if (storageError?.code !== "storage/object-not-found") {
+                throw storageError;
+              }
+            }
+
+            await updateProfile(user, { photoURL: null });
+            setProfilePhotoURL("");
+            Alert.alert("Profile photo removed", "Ab tum initials avatar dekhoge.");
+          } catch (removeError) {
+            Alert.alert(
+              "Photo remove nahi hui",
+              removeError?.message || "Please try again.",
+            );
+          } finally {
+            setProfilePhotoBusy(false);
+          }
+        },
+      },
+    ]);
+  };
 
   const startOrResumeTimer = () => {
     const now = Date.now();
@@ -473,7 +573,17 @@ export function StudentDashboard({
     if (activeTab === "reports")
       return <ReportsScreen summary={summary} tests={tests} />;
     if (activeTab === "profile")
-      return <ProfileScreen onSignOut={onSignOut} user={user} />;
+      return (
+        <ProfileScreen
+          onSignOut={onSignOut}
+          user={user}
+          summary={summary}
+          photoURL={profilePhotoURL}
+          photoBusy={profilePhotoBusy}
+          onChoosePhoto={handleChooseProfilePhoto}
+          onRemovePhoto={handleRemoveProfilePhoto}
+        />
+      );
     return (
       <HomeScreen
         name={studentName}
@@ -1808,45 +1918,181 @@ export function ReportsScreen({ summary, tests }) {
   );
 }
 
-export function ProfileScreen({ onSignOut, user }) {
+export function ProfileScreen({
+  onSignOut,
+  user,
+  summary,
+  photoURL,
+  photoBusy,
+  onChoosePhoto,
+  onRemovePhoto,
+}) {
+  const fullName = user?.displayName?.trim() || "Student";
+  const initials =
+    fullName
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part.charAt(0))
+      .join("")
+      .toUpperCase() || "S";
+
   return (
     <>
       <ScreenIntro
-        eyebrow="YOUR PROFILE"
-        text="Yeh app dashboard data ko authenticated Firebase UID ke under hi read aur write karta hai."
-        title="Private by design"
+        eyebrow="STUDENT ACCOUNT"
+        title="Your profile"
+        text="Apni identity aur study progress ek jagah manage karo. Tumhari DP tumhare Firebase account se sync hoti hai."
       />
-      <View style={styles.profileCard}>
-        <View style={styles.profileAvatar}>
-          <Text style={styles.profileAvatarText}>
-            {(user?.displayName || "S").charAt(0).toUpperCase()}
-          </Text>
+
+      <View style={styles.profileHeroCard}>
+        <View pointerEvents="none" style={styles.profileHeroGlow} />
+        <View style={styles.profileHeroTop}>
+          <View style={styles.profileAvatarShell}>
+            {photoURL ? (
+              <Image
+                accessibilityLabel="Student profile photo"
+                source={{ uri: photoURL }}
+                style={styles.profileAvatarImage}
+              />
+            ) : (
+              <View style={styles.profileAvatarFallback}>
+                <Text style={styles.profileAvatarText}>{initials}</Text>
+              </View>
+            )}
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Upload or change profile photo"
+              disabled={photoBusy}
+              onPress={onChoosePhoto}
+              style={styles.profileAvatarEdit}
+            >
+              {photoBusy ? (
+                <ActivityIndicator color="#ffffff" size="small" />
+              ) : (
+                <Text style={styles.profileAvatarEditText}>↥</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.profileHeroIdentity}>
+            <View style={styles.profileActiveBadge}>
+              <View style={styles.profileActiveDot} />
+              <Text style={styles.profileActiveBadgeText}>ACCOUNT ACTIVE</Text>
+            </View>
+            <Text numberOfLines={2} style={styles.profileHeroName}>
+              {fullName}
+            </Text>
+            <Text numberOfLines={2} style={styles.profileHeroEmail}>
+              {user?.email || "Email not available"}
+            </Text>
+            <View style={styles.profileRolePill}>
+              <Text style={styles.profileRolePillText}>JEE PREPARATION</Text>
+            </View>
+          </View>
         </View>
-        <Text style={styles.profileName}>{user?.displayName || "Saumya"}</Text>
-        <Text style={styles.profileRole}>JEE 2027 aspirant</Text>
-        <Text selectable style={styles.uidText}>
-          UID: {user?.uid}
+
+        <View style={styles.profilePhotoActions}>
+          <TouchableOpacity
+            accessibilityRole="button"
+            disabled={photoBusy}
+            onPress={onChoosePhoto}
+            style={[styles.profilePhotoPrimary, photoBusy && styles.buttonDisabled]}
+          >
+            {photoBusy ? (
+              <ActivityIndicator color="#ffffff" size="small" />
+            ) : (
+              <Text style={styles.profilePhotoPrimaryText}>
+                {photoURL ? "Change photo" : "Upload a DP"}
+              </Text>
+            )}
+          </TouchableOpacity>
+          {photoURL ? (
+            <TouchableOpacity
+              accessibilityRole="button"
+              disabled={photoBusy}
+              onPress={onRemovePhoto}
+              style={styles.profilePhotoSecondary}
+            >
+              <Text style={styles.profilePhotoSecondaryText}>Remove</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+        <Text style={styles.profilePhotoHint}>
+          Square crop recommended · photo uploads to your private account folder.
         </Text>
       </View>
-      <Text style={styles.sectionHeading}>Security status</Text>
+
+      <View style={styles.profileStatsGrid}>
+        <View style={styles.profileStatCard}>
+          <View style={[styles.profileStatAccent, { backgroundColor: "#8b5cf6" }]} />
+          <Text style={styles.profileStatLabel}>TOTAL STUDY</Text>
+          <Text style={styles.profileStatValue}>
+            {formatCompactHours(summary?.totalSeconds || 0)}
+          </Text>
+        </View>
+        <View style={styles.profileStatCard}>
+          <View style={[styles.profileStatAccent, { backgroundColor: "#14b8a6" }]} />
+          <Text style={styles.profileStatLabel}>SYLLABUS</Text>
+          <Text style={styles.profileStatValue}>{summary?.syllabusPercent || 0}%</Text>
+        </View>
+        <View style={styles.profileStatCard}>
+          <View style={[styles.profileStatAccent, { backgroundColor: "#f59e0b" }]} />
+          <Text style={styles.profileStatLabel}>TEST AVERAGE</Text>
+          <Text style={styles.profileStatValue}>
+            {summary?.testAverage == null ? "—" : `${Math.round(summary.testAverage)}%`}
+          </Text>
+        </View>
+      </View>
+
+      <Text style={styles.sectionHeading}>Account details</Text>
+      <View style={styles.profileDetailsCard}>
+        <ProfileDetailRow icon="◎" label="Full name" value={fullName} />
+        <ProfileDetailRow icon="✉" label="Email address" value={user?.email || "Not provided"} />
+        <ProfileDetailRow icon="⌁" label="Firebase UID" value={user?.uid || "Unavailable"} selectable />
+      </View>
+
+      <Text style={styles.sectionHeading}>Security & privacy</Text>
       <View style={styles.securityListCard}>
         <SecurityRow
           icon="✓"
-          text="App Check: debug in dev, Play Integrity in release"
+          text="App Check: debug in development, Play Integrity in release"
         />
         <SecurityRow
           icon="✓"
           text="Login callable: loginWithAccessCode in us-central1"
         />
-        <SecurityRow icon="✓" text="Dashboard data: /users/{uid}/… only" />
+        <SecurityRow icon="✓" text="Study data is scoped to /users/{uid}/…" />
+        <SecurityRow icon="✓" text="DP upload is stored under your own user ID" />
       </View>
-      <TouchableOpacity onPress={onSignOut} style={styles.signOutButton}>
+
+      <TouchableOpacity
+        accessibilityRole="button"
+        onPress={onSignOut}
+        style={styles.signOutButton}
+      >
         <Text style={styles.signOutButtonText}>Sign out securely</Text>
       </TouchableOpacity>
       <Text style={styles.profileFootnote}>
-        Sign out ke baad locally cached Firebase session bhi close ho jayega.
+        Sign out ke baad tumhara saved study data aur profile photo account ke saath linked rahega.
       </Text>
     </>
+  );
+}
+
+function ProfileDetailRow({ icon, label, value, selectable = false }) {
+  return (
+    <View style={styles.profileDetailRow}>
+      <View style={styles.profileDetailIcon}>
+        <Text style={styles.profileDetailIconText}>{icon}</Text>
+      </View>
+      <View style={styles.profileDetailCopy}>
+        <Text style={styles.profileDetailLabel}>{label}</Text>
+        <Text selectable={selectable} style={styles.profileDetailValue}>
+          {value}
+        </Text>
+      </View>
+    </View>
   );
 }
 
@@ -3389,6 +3635,173 @@ const styles = StyleSheet.create({
     marginLeft: 5,
   },
 
+  profileHeroCard: {
+    backgroundColor: "#111a2e",
+    borderColor: "#2c3b59",
+    borderRadius: 23,
+    borderWidth: 1,
+    marginBottom: 19,
+    overflow: "hidden",
+    padding: 17,
+  },
+  profileHeroGlow: {
+    backgroundColor: "#39358c",
+    borderRadius: 90,
+    height: 175,
+    opacity: 0.22,
+    position: "absolute",
+    right: -58,
+    top: -92,
+    width: 175,
+  },
+  profileHeroTop: {
+    alignItems: "center",
+    flexDirection: "row",
+  },
+  profileAvatarShell: {
+    alignItems: "center",
+    backgroundColor: "#1b2844",
+    borderColor: "#6965d7",
+    borderRadius: 55,
+    borderWidth: 2,
+    height: 108,
+    justifyContent: "center",
+    marginRight: 15,
+    padding: 4,
+    width: 108,
+  },
+  profileAvatarImage: {
+    backgroundColor: "#26334e",
+    borderRadius: 48,
+    height: 96,
+    width: 96,
+  },
+  profileAvatarFallback: {
+    alignItems: "center",
+    backgroundColor: "#5b57d6",
+    borderRadius: 48,
+    height: 96,
+    justifyContent: "center",
+    width: 96,
+  },
+  profileAvatarText: { color: "#ffffff", fontSize: 30, fontWeight: "900" },
+  profileAvatarEdit: {
+    alignItems: "center",
+    backgroundColor: "#8b5cf6",
+    borderColor: "#111a2e",
+    borderRadius: 17,
+    borderWidth: 3,
+    bottom: -1,
+    height: 34,
+    justifyContent: "center",
+    position: "absolute",
+    right: -2,
+    width: 34,
+  },
+  profileAvatarEditText: { color: "#ffffff", fontSize: 17, fontWeight: "900" },
+  profileHeroIdentity: { flex: 1, minWidth: 0 },
+  profileActiveBadge: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    backgroundColor: "#123b38",
+    borderColor: "#1f5c55",
+    borderRadius: 20,
+    borderWidth: 1,
+    flexDirection: "row",
+    marginBottom: 7,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  profileActiveDot: {
+    backgroundColor: "#34d399",
+    borderRadius: 4,
+    height: 6,
+    marginRight: 6,
+    width: 6,
+  },
+  profileActiveBadgeText: { color: "#a7f3d0", fontSize: 8, fontWeight: "900", letterSpacing: 0.5 },
+  profileHeroName: { color: "#f8fafc", fontSize: 19, fontWeight: "900", lineHeight: 24 },
+  profileHeroEmail: { color: "#9aa8bd", fontSize: 10, lineHeight: 15, marginTop: 4 },
+  profileRolePill: {
+    alignSelf: "flex-start",
+    backgroundColor: "#282858",
+    borderRadius: 8,
+    marginTop: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+  },
+  profileRolePillText: { color: "#c7d2fe", fontSize: 8, fontWeight: "900", letterSpacing: 0.5 },
+  profilePhotoActions: { flexDirection: "row", gap: 9, marginTop: 18 },
+  profilePhotoPrimary: {
+    alignItems: "center",
+    backgroundColor: "#5b57d6",
+    borderColor: "#7774ee",
+    borderRadius: 12,
+    borderWidth: 1,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 44,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  profilePhotoPrimaryText: { color: "#ffffff", fontSize: 12, fontWeight: "900" },
+  profilePhotoSecondary: {
+    alignItems: "center",
+    backgroundColor: "#281d30",
+    borderColor: "#5f344d",
+    borderRadius: 12,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 44,
+    paddingHorizontal: 17,
+  },
+  profilePhotoSecondaryText: { color: "#fecdd3", fontSize: 11, fontWeight: "800" },
+  profilePhotoHint: { color: "#71809a", fontSize: 9, lineHeight: 14, marginTop: 10 },
+  profileStatsGrid: { flexDirection: "row", gap: 9, marginBottom: 23 },
+  profileStatCard: {
+    backgroundColor: "#111a2e",
+    borderColor: "#24324c",
+    borderRadius: 15,
+    borderWidth: 1,
+    flex: 1,
+    minWidth: 0,
+    overflow: "hidden",
+    paddingHorizontal: 10,
+    paddingVertical: 13,
+  },
+  profileStatAccent: { borderRadius: 3, height: 4, marginBottom: 10, width: 22 },
+  profileStatLabel: { color: "#8290aa", fontSize: 8, fontWeight: "800", letterSpacing: 0.4 },
+  profileStatValue: { color: "#f8fafc", fontSize: 16, fontWeight: "900", marginTop: 6 },
+  profileDetailsCard: {
+    backgroundColor: "#111a2e",
+    borderColor: "#24324c",
+    borderRadius: 17,
+    borderWidth: 1,
+    marginBottom: 22,
+    overflow: "hidden",
+  },
+  profileDetailRow: {
+    alignItems: "center",
+    borderBottomColor: "#22314b",
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    minHeight: 69,
+    paddingHorizontal: 13,
+    paddingVertical: 11,
+  },
+  profileDetailIcon: {
+    alignItems: "center",
+    backgroundColor: "#202c47",
+    borderRadius: 11,
+    height: 35,
+    justifyContent: "center",
+    marginRight: 11,
+    width: 35,
+  },
+  profileDetailIconText: { color: "#c7d2fe", fontSize: 15, fontWeight: "900" },
+  profileDetailCopy: { flex: 1, minWidth: 0 },
+  profileDetailLabel: { color: "#8290aa", fontSize: 9, fontWeight: "800", letterSpacing: 0.5 },
+  profileDetailValue: { color: "#e2e8f0", fontSize: 12, fontWeight: "700", lineHeight: 18, marginTop: 3 },
   profileCard: {
     alignItems: "center",
     backgroundColor: "#151b35",
