@@ -24,7 +24,9 @@ import {
   serverTimestamp,
   setDoc,
 } from "@react-native-firebase/firestore";
-
+import AppHeader from "./AppHeader";
+import NavigationDrawer from "./NavigationDrawer";
+import BottomNavigation from "./BottomNavigation";
 const db = getFirestore(getApp());
 
 const NAV_ITEMS = [
@@ -269,6 +271,7 @@ export function StudentDashboard({
   tests,
   user,
 }) {
+  const [drawerVisible, setDrawerVisible] = useState(false);
   const [activeTab, setActiveTab] = useState("home");
   const [timerMode, setTimerMode] = useState("active");
   const [timerRunning, setTimerRunning] = useState(false);
@@ -470,23 +473,24 @@ export function StudentDashboard({
   return (
     <SafeAreaView style={styles.dashboardPage}>
       <StatusBar backgroundColor="#080d1b" barStyle="light-content" />
-      <View style={styles.dashboardHeader}>
-        <View>
-          <Text style={styles.dashboardKicker}>JEE 2027 • SECURE PORTAL</Text>
-          <Text style={styles.dashboardTitle}>{screenLabel}</Text>
-        </View>
-        <TouchableOpacity
-          accessibilityLabel="Open profile"
-          accessibilityRole="button"
-          onPress={() => setActiveTab("profile")}
-          style={[
-            styles.avatarButton,
-            activeTab === "profile" && styles.avatarButtonActive,
-          ]}
-        >
-          <Text style={styles.avatarText}>{initial}</Text>
-        </TouchableOpacity>
-      </View>
+      <AppHeader
+        title={screenLabel}
+        subtitle="JEE 2027 • SECURE PORTAL"
+        onMenuPress={() => setDrawerVisible(true)}
+        onProfilePress={() => setActiveTab("profile")}
+      />
+
+      <NavigationDrawer
+        visible={drawerVisible}
+        activeTab={activeTab}
+        user={user}
+        onClose={() => setDrawerVisible(false)}
+        onNavigate={(tab) => {
+          setActiveTab(tab);
+          setDrawerVisible(false);
+        }}
+        onSignOut={onSignOut}
+      />
       {!!dataError && (
         <View style={styles.syncWarning}>
           <Text style={styles.syncWarningText}>{dataError}</Text>
@@ -507,30 +511,7 @@ export function StudentDashboard({
         ) : null}
         {renderScreen()}
       </ScrollView>
-      <View style={styles.bottomNavigation}>
-        {NAV_ITEMS.map((item) => {
-          const selected = activeTab === item.key;
-          return (
-            <TouchableOpacity
-              accessibilityRole="tab"
-              accessibilityState={{ selected }}
-              key={item.key}
-              onPress={() => setActiveTab(item.key)}
-              style={styles.navItem}
-            >
-              <Text style={[styles.navIcon, selected && styles.navIconActive]}>
-                {item.icon}
-              </Text>
-              <Text
-                numberOfLines={1}
-                style={[styles.navLabel, selected && styles.navLabelActive]}
-              >
-                {item.label}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
+      <BottomNavigation activeTab={activeTab} onNavigate={setActiveTab} />
     </SafeAreaView>
   );
 }

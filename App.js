@@ -179,33 +179,47 @@ export default function App() {
   useEffect(() => {
     let active = true;
 
-    async function initializeSecurity() {
+   
+async function initializeSecurity() {
+  try {
+    const provider = new ReactNativeFirebaseAppCheckProvider();
+
+    provider.configure({
+      android: {
+  provider: __DEV__ ? "debug" : "playIntegrity",
+  },
+    });
+
+    const instance = await initializeAppCheck(firebaseApp, {
+      provider,
+      isTokenAutoRefreshEnabled: true,
+    });
+
+    if (active) {
+      setAppCheckInstance(instance);
+      setAppCheckReady(true);
+    }
+
+    if (__DEV__) {
       try {
-        const provider = new ReactNativeFirebaseAppCheckProvider();
-        provider.configure({
-          // Debug in development; Play Integrity in release.
-          // Never store a debug token in source code.
-          android: { provider: __DEV__ ? "debug" : "playIntegrity" },
-          apple: { provider: "debug" },
-        });
-        const instance = await initializeAppCheck(firebaseApp, {
-          provider,
-          isTokenAutoRefreshEnabled: true,
-        });
-        if (active) {
-          setAppCheckInstance(instance);
-          setAppCheckReady(true);
-        }
-      } catch (securityError) {
-        console.error("[AppCheck] initialization failed", securityError);
-        if (active) {
-          setAppCheckError(
-            errorMessage(securityError, "App Check initialize nahi hua."),
-          );
-          setAppCheckReady(false);
-        }
+        const result = await instance.getToken(false);
+        console.log("[AppCheck] Token available:", Boolean(result?.token));
+      } catch (tokenError) {
+        console.error("[AppCheck] Token retrieval failed", tokenError);
       }
     }
+  } catch (securityError) {
+    console.error("[AppCheck] initialization failed", securityError);
+
+    if (active) {
+      setAppCheckError(
+        errorMessage(securityError, "App Check initialize nahi hua."),
+      );
+      setAppCheckReady(false);
+    }
+  }
+}
+
 
     initializeSecurity();
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
