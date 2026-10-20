@@ -8,3 +8,10 @@ google-services.json
 *.jks
 .env
 .env.*
+# Local IDE and generated debug files
+.idea/
+build-error.log
+build-full.log
+export-log.txt
+jee-app-logcat.txt
+jee-logcat.txt
